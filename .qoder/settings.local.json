@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la /workspaces/EduLearnX && find /workspaces/EduLearnX -maxdepth 2 -type d -not -path '*/node_modules*' -not -path '*/.git*' | head -50)",
+      "Bash(head -60 /workspaces/EduLearnX/README.md; echo ---; cat /workspaces/EduLearnX/zoom/package.json; echo ---; cat /workspaces/EduLearnX/vercel.json; echo ---; head -40 /workspaces/EduLearnX/server/index.ts)"
+    ]
+  }
+}

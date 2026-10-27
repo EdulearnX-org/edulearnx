@@ -1,0 +1,14 @@
+import { isDatabaseConfigured, query } from "./connection.js";
+
+export const contactSchemaSql = `CREATE TABLE IF NOT EXISTS contact_messages (
+  id BIGSERIAL PRIMARY KEY,
+  name VARCHAR(200) NOT NULL,
+  email VARCHAR(320) NOT NULL,
+  subject VARCHAR(200) NOT NULL,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);`;
+
+export async function initializeContactSchema() {
+  if (isDatabaseConfigured) await query(contactSchemaSql);
+}

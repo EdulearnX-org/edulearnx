@@ -1,0 +1,3 @@
+minimumReleaseAgeExclude:
+  - '@electric-sql/pglite@0.5.11'
+  - nodemailer@10.2.0

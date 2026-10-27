@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+node_modules
+.pnpm-store
+dist
+dist-ssr
+logs
+*.log
+portal-*.log
+*-dev.err.log
+*-dev.out.log

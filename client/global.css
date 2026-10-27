@@ -1,0 +1,469 @@
+/** @import must precede all other statements */
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Sora:wght@400;600;700&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /**
+   * Tailwind CSS theme
+   * tailwind.config.ts expects the following color variables to be expressed as HSL values.
+   * A different format will require also updating the theme in tailwind.config.ts.
+  */
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    --edu-dark-blue: 219 85% 28%;
+    --edu-light-blue: 219 100% 50%;
+    --edu-purple: 265 100% 60%;
+    --edu-purple-light: 280 100% 75%;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Poppins", sans-serif;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: "Sora", sans-serif;
+  }
+
+  :where(p, span, li, h1, h2, h3, h4, h5, h6, a, button, label, td, th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  pre,
+  code {
+    overflow-x: auto;
+    white-space: pre;
+  }
+}
+
+@layer components {
+  .glass-effect {
+    @apply backdrop-blur-xl bg-white/10 border border-white/20 rounded-2xl;
+  }
+
+  .glass-light {
+    @apply backdrop-blur-xl bg-white/80 border border-white/30 dark:bg-slate-950/80 dark:border-slate-800/70;
+  }
+
+  .gradient-blue {
+    @apply bg-gradient-to-r from-edu-dark-blue to-edu-light-blue;
+  }
+
+  .gradient-purple {
+    @apply bg-gradient-to-r from-edu-purple to-edu-purple-light;
+  }
+
+  .gradient-mixed {
+    @apply bg-gradient-to-r from-edu-dark-blue via-edu-purple to-edu-light-blue;
+  }
+
+  .btn-primary {
+    @apply relative px-6 py-2.5 rounded-full font-semibold text-white bg-gradient-to-r from-edu-dark-blue to-edu-light-blue hover:shadow-lg transition-all duration-300 hover:-translate-y-0.5;
+    transform-style: preserve-3d;
+    box-shadow: 0 8px 0 rgba(30, 41, 92, 0.18), 0 16px 30px rgba(30, 41, 92, 0.14);
+  }
+
+  .btn-secondary {
+    @apply px-6 py-2.5 rounded-full font-semibold text-edu-dark-blue bg-white/90 hover:bg-white border border-white/30 transition-all duration-300 hover:scale-105 dark:bg-slate-900/90 dark:text-slate-100 dark:border-slate-700 dark:hover:bg-slate-800;
+  }
+
+  .btn-outline-primary {
+    @apply px-6 py-2.5 rounded-full font-semibold text-edu-dark-blue border-2 border-edu-dark-blue bg-transparent hover:bg-edu-dark-blue hover:text-white transition-all duration-300 dark:text-slate-100 dark:border-edu-light-blue dark:hover:bg-edu-light-blue dark:hover:text-slate-950;
+  }
+
+  .form-input {
+    @apply w-full rounded-xl border border-slate-200 bg-slate-50 py-4 pl-12 pr-4 text-slate-900 outline-none transition focus:border-edu-purple focus:bg-white;
+  }
+
+  .nav-link {
+    @apply relative text-slate-700 font-medium transition-colors duration-300 hover:text-edu-dark-blue after:absolute after:bottom-0 after:left-0 after:w-0 after:h-0.5 after:bg-edu-light-blue after:transition-all after:duration-300 hover:after:w-full dark:text-slate-200 dark:hover:text-edu-light-blue;
+  }
+
+  .course-card {
+    @apply relative overflow-hidden rounded-2xl bg-white border border-slate-200 transition-all duration-300 dark:bg-slate-900 dark:border-slate-800;
+    transform: perspective(900px) rotateX(0deg) translateZ(0);
+    transform-style: preserve-3d;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+  }
+
+  .course-card:hover {
+    @apply border-edu-purple/30 shadow-2xl -translate-y-2;
+    transform: perspective(900px) rotateX(1.5deg) translateZ(8px) translateY(-8px);
+  }
+
+  .feature-card {
+    @apply relative p-8 rounded-2xl bg-white border border-slate-200 transition-all duration-300 dark:bg-slate-900 dark:border-slate-800;
+    transform-style: preserve-3d;
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.05);
+  }
+
+  .feature-card:hover {
+    @apply border-edu-purple/30 shadow-xl -translate-y-1;
+    transform: perspective(900px) rotateX(1deg) translateZ(6px) translateY(-4px);
+  }
+
+  .student-theme-shell {
+    isolation: isolate;
+    background: #030611;
+  }
+
+  .student-theme-art {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-color: #030611;
+    background-image: url("/student-portal-night-study.webp");
+    background-position: center;
+    background-size: cover;
+    opacity: 0;
+    transition: opacity 400ms ease;
+  }
+
+  .student-theme-art::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, rgba(3, 6, 17, 0.88) 0%, rgba(3, 6, 17, 0.62) 38%, rgba(3, 6, 17, 0.16) 100%);
+  }
+
+  .student-theme-art.is-active {
+    opacity: 0.82;
+    animation: student-theme-drift 18s ease-in-out infinite alternate;
+  }
+
+  .student-theme-art.neon-city {
+    background-image: url("/student-portal-neon-city.webp");
+  }
+
+  .student-theme-sidebar {
+    background: rgba(5, 9, 25, 0.88);
+    color: #f8fafc;
+    backdrop-filter: blur(18px);
+    box-shadow: 18px 0 48px rgba(0, 0, 0, 0.18);
+  }
+
+  .student-theme-main {
+    position: relative;
+    z-index: 0;
+    background: linear-gradient(90deg, rgba(3, 6, 17, 0.78), rgba(3, 6, 17, 0.26));
+  }
+
+  .student-theme-shell.neon-city .student-theme-main {
+    background: linear-gradient(90deg, rgba(8, 4, 25, 0.82), rgba(7, 13, 34, 0.28));
+  }
+
+  .student-theme-shell.neon-city .student-theme-sidebar {
+    background: rgba(8, 4, 25, 0.88);
+  }
+
+  .student-theme-shell.neon-city .student-theme-hero {
+    background-image: linear-gradient(90deg, rgba(8, 4, 25, 0.94) 0%, rgba(8, 4, 25, 0.64) 43%, rgba(8, 4, 25, 0.08) 100%), url("/student-portal-neon-city.webp");
+  }
+
+  .student-theme-shell.neon-city .student-theme-label {
+    color: #f0abfc;
+  }
+
+  .student-theme-shell.neon-city .student-theme-meta strong {
+    color: #fce7f3;
+  }
+
+  .student-theme-main > div > header h1,
+  .student-theme-main > div > header p {
+    color: #f8fafc;
+  }
+
+  .student-theme-hero {
+    position: relative;
+    min-height: 320px;
+    overflow: hidden;
+    border: 1px solid rgba(148, 163, 184, 0.24);
+    background-color: #071021;
+    background-image: linear-gradient(90deg, rgba(3, 6, 17, 0.94) 0%, rgba(3, 6, 17, 0.68) 43%, rgba(3, 6, 17, 0.08) 100%), url("/student-portal-night-study.webp");
+    background-position: center;
+    background-size: cover;
+  }
+
+  .student-theme-hero::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: 42%;
+    background: linear-gradient(0deg, rgba(3, 6, 17, 0.5), transparent);
+    pointer-events: none;
+  }
+
+  .student-theme-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: #fcd34d;
+    font-size: 0.72rem;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+
+  .student-theme-meta {
+    display: flex;
+    max-width: 34rem;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+  }
+
+  .student-theme-meta > div {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 9.5rem;
+    padding: 0.75rem 0.9rem;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 0.75rem;
+    background: rgba(2, 6, 23, 0.44);
+    backdrop-filter: blur(10px);
+  }
+
+  .student-theme-meta span {
+    color: #cbd5e1;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .student-theme-meta strong {
+    color: #fff7ed;
+    font-size: 0.95rem;
+  }
+
+  @keyframes student-theme-drift {
+    from { background-position: 48% 50%; }
+    to { background-position: 52% 50%; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .btn-primary,
+    .course-card,
+    .feature-card {
+      transition: none;
+      transform: none;
+    }
+
+    .student-theme-art.is-active {
+      animation: none;
+    }
+  }
+
+  .course-image {
+    @apply h-48 w-full object-cover transition-transform duration-500;
+  }
+
+  .scroll-reveal {
+    opacity: 0;
+    transform: translateY(var(--reveal-y, 36px));
+    transition:
+      opacity 700ms ease,
+      transform 700ms ease;
+    will-change: opacity, transform;
+  }
+
+  .scroll-reveal.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+  }
+
+  .floating-glow {
+    animation: floating 6s ease-in-out infinite;
+  }
+
+  @keyframes floating {
+    0%, 100% {
+      transform: translateY(0px);
+      filter: drop-shadow(0 0 20px rgba(168, 85, 247, 0.3));
+    }
+    50% {
+      transform: translateY(-20px);
+      filter: drop-shadow(0 0 30px rgba(168, 85, 247, 0.5));
+    }
+  }
+
+  .glow-blob {
+    animation: glow-pulse 4s ease-in-out infinite;
+  }
+
+  @keyframes glow-pulse {
+    0%, 100% {
+      opacity: 0.3;
+      filter: blur(40px);
+    }
+    50% {
+      opacity: 0.6;
+      filter: blur(60px);
+    }
+  }
+}
+
+@layer utilities {
+  .dark .bg-white {
+    background-color: hsl(222.2 84% 4.9%);
+  }
+
+  .dark .bg-white\/40 {
+    background-color: rgb(2 6 23 / 0.5);
+  }
+
+  .dark .bg-white\/50,
+  .dark .bg-white\/80,
+  .dark .bg-white\/90 {
+    background-color: rgb(15 23 42 / 0.85);
+  }
+
+  .dark .bg-slate-50,
+  .dark .bg-slate-100 {
+    background-color: rgb(15 23 42);
+  }
+
+  .dark .text-slate-900,
+  .dark .text-slate-800,
+  .dark .text-slate-700 {
+    color: rgb(241 245 249);
+  }
+
+  .dark .text-slate-600,
+  .dark .text-slate-500 {
+    color: rgb(203 213 225);
+  }
+
+  .dark .text-slate-400 {
+    color: rgb(148 163 184);
+  }
+
+  .dark .border-slate-200,
+  .dark .border-slate-300 {
+    border-color: rgb(51 65 85);
+  }
+
+  .dark .shadow-slate-200\/70,
+  .dark .shadow-lg,
+  .dark .shadow-xl,
+  .dark .shadow-2xl {
+    --tw-shadow-color: rgb(2 6 23 / 0.45);
+    --tw-shadow: var(--tw-shadow-colored);
+  }
+
+  .dark input,
+  .dark textarea,
+  .dark select {
+    color: rgb(241 245 249);
+    background-color: rgb(15 23 42);
+    border-color: rgb(51 65 85);
+  }
+
+  .dark input::placeholder,
+  .dark textarea::placeholder {
+    color: rgb(148 163 184);
+  }
+
+  .dark details {
+    background-color: rgb(15 23 42);
+  }
+}

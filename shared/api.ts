@@ -46,6 +46,7 @@ export interface AuthResponse {
 
 // Course types
 export interface Course {
+  price_cents: number;
   id: number | string;
   title: string;
   description?: string;
@@ -64,6 +65,8 @@ export interface Course {
 }
 
 export interface CreateCourseRequest {
+  price_cents: number;
+  instructor_id?: number | string | null;
   title: string;
   description?: string;
   category?: string;
@@ -74,6 +77,8 @@ export interface CreateCourseRequest {
 }
 
 export interface UpdateCourseRequest {
+  price_cents?: number;
+  instructor_id?: number | string | null;
   title?: string;
   description?: string;
   category?: string;

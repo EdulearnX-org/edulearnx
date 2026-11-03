@@ -93,6 +93,7 @@ export async function initializeDatabase() {
     `);
     // A course owns one stable meeting ID. All of its scheduled classes use it.
     await query(`ALTER TABLE courses ADD COLUMN IF NOT EXISTS meeting_id VARCHAR(32);`);
+    await query(`ALTER TABLE courses ADD COLUMN IF NOT EXISTS zoom_link TEXT;`);
     await query(`
       UPDATE courses
       SET meeting_id = CONCAT(

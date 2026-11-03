@@ -1,3 +1,4 @@
+import CourseZoomLinkEditor from "@/components/CourseZoomLinkEditor";
 import { courseDateRange, courseDuration, DatabaseCourse, useCourses } from "@/hooks/useCourses";
 import { readApiResponse } from "@/lib/api";
 import { BookOpen, Plus, Save, Trash2 } from "lucide-react";
@@ -233,6 +234,7 @@ export default function AdminCourses() {
                     <button onClick={() => saveCourse(course)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-bold text-white hover:bg-blue-700"><Save className="h-4 w-4" /> Save</button>
                     <button onClick={() => deleteCourse(course)} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700"><Trash2 className="h-4 w-4" /> Delete</button>
                   </div>
+                  <CourseZoomLinkEditor courseId={course.id} />
                 </article>
               );
             })

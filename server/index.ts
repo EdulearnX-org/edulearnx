@@ -11,6 +11,7 @@ import { submitContactMessage } from "./routes/contact.js";
 import * as authRoutes from "./routes/auth.js";
 import * as userRoutes from "./routes/users.js";
 import * as courseRoutes from "./routes/courses.js";
+import * as courseZoomRoutes from "./routes/courseZoom.js";
 import * as statsRoutes from "./routes/stats.js";
 import * as enrollmentRequestRoutes from "./routes/enrollmentRequests.js";
 import * as tutorApplicationRoutes from "./routes/tutorApplications.js";
@@ -22,7 +23,7 @@ import * as paymentSettingsRoutes from "./routes/paymentSettings.js";
 import * as rewardRoutes from "./routes/rewards.js";
 import * as adminPermissionRoutes from "./routes/adminPermissions.js";
 import * as dealsRoutes from "./routes/deals.js";
-import { requireAuth } from "./utils/authMiddleware.js";
+import { requireAuth, optionalAuth } from "./utils/authMiddleware.js";
 import {
   requireAdminFeature,
   requireAdminSelfOrUserManagement,
@@ -173,7 +174,7 @@ export function createServer() {
   apiRouter.post("/contact", submitContactMessage);
   apiRouter.use("/auth", authRoutes.authRouter);
   apiRouter.get("/admin/permissions/me", requireAuth, adminPermissionRoutes.getMyPermissions);
-  apiRouter.get("/deals/bundles", dealsRoutes.getBundles);
+  apiRouter.get("/deals/bundles", optionalAuth, dealsRoutes.getBundles);
   apiRouter.get("/deals/promo-codes", requireAuth, requireAdminFeature("deals"), dealsRoutes.getPromoCodes);
   apiRouter.post("/deals/bundles", requireAuth, requireAdminFeature("deals"), dealsRoutes.createBundle);
   apiRouter.patch("/deals/bundles/:id", requireAuth, requireAdminFeature("deals"), dealsRoutes.updateBundle);
@@ -183,6 +184,7 @@ export function createServer() {
   apiRouter.delete("/deals/promo-codes/:id", requireAuth, requireAdminFeature("deals"), dealsRoutes.deletePromoCode);
   apiRouter.get("/admin/co-admins", requireAuth, requirePrimaryAdmin, adminPermissionRoutes.getCoAdmins);
   apiRouter.put("/admin/co-admins/:id", requireAuth, requirePrimaryAdmin, adminPermissionRoutes.updateCoAdminPermissions);
+  apiRouter.get("/public-stats", statsRoutes.getPublicStats);
   apiRouter.get("/platform-stats", requireAuth, requireAdminFeature("overview"), statsRoutes.getPlatformStats);
   apiRouter.get("/students/:id/rewards", requireAuth, rewardRoutes.getStudentRewards);
 
@@ -192,7 +194,9 @@ export function createServer() {
   apiRouter.put("/users/:id", requireAuth, requireAdminSelfOrUserManagement, userRoutes.updateUser);
   apiRouter.delete("/users/:id", requireAuth, requireAdminFeature("users"), userRoutes.deleteUser);
 
-  apiRouter.get("/courses", courseRoutes.getCourses);
+  apiRouter.get("/courses", optionalAuth, courseRoutes.getCourses);
+  apiRouter.get("/course-zoom-links", requireAuth, courseZoomRoutes.getCourseZoomLinks);
+  apiRouter.patch("/courses/:id/zoom-link", requireAuth, courseZoomRoutes.updateCourseZoomLink);
   apiRouter.get("/instructors", requireAuth, requireAdminFeature("courses"), async (_req, res) => {
     try {
       const result = await query("SELECT id, full_name FROM users WHERE role = 'teacher' AND is_active = true ORDER BY full_name");
@@ -201,7 +205,7 @@ export function createServer() {
       res.status(500).json({ success: false, error: "Unable to load instructors" });
     }
   });
-  apiRouter.get("/courses/:id", courseRoutes.getCourseById);
+  apiRouter.get("/courses/:id", optionalAuth, courseRoutes.getCourseById);
   apiRouter.post("/courses", requireAuth, requireAdminFeature("courses"), courseRoutes.createCourse);
   apiRouter.put("/courses/:id", requireAuth, requireAdminFeature("courses"), courseRoutes.updateCourse);
   apiRouter.delete("/courses/:id", requireAuth, requireAdminFeature("courses"), courseRoutes.deleteCourse);
@@ -246,6 +250,7 @@ export function createServer() {
   apiRouter.get("/courses/:course_id/structure", requireAuth, progressRoutes.getCourseStructure);
 
   apiRouter.get("/live-classes", requireAuth, liveClassRoutes.getLiveClasses);
+  apiRouter.post("/live-classes/batch", requireAuth, liveClassRoutes.createClassBatch);
   apiRouter.post("/live-classes", requireAuth, liveClassRoutes.createLiveClass);
   apiRouter.put("/live-classes/:id", requireAuth, liveClassRoutes.updateLiveClass);
   apiRouter.delete("/live-classes/:id", requireAuth, liveClassRoutes.deleteLiveClass);

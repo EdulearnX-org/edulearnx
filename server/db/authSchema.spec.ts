@@ -1,12 +1,15 @@
 import { PGlite } from "@electric-sql/pglite";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./connection.js",()=>({default:{},isDatabaseConfigured:false}));
 import {authSchemaSql} from "./authSchema.js";
-let db:PGlite | undefined;
-afterEach(async()=>{await db?.close();db=undefined;});
+let db:PGlite;
+beforeEach(async()=>{
+ db=new PGlite();
+ await db.waitReady;
+},15_000);
+afterEach(async()=>{await db?.close();});
 describe("local auth migration compatibility",()=>{
  it("preserves legacy required audit creators and supports issuing reset tokens",async()=>{
-  db=new PGlite();
   await db.exec(`CREATE TABLE users (id SERIAL PRIMARY KEY,email TEXT NOT NULL);
    INSERT INTO users(email) VALUES ('student@example.com');
    CREATE TABLE password_reset_tokens (
@@ -24,7 +27,6 @@ describe("local auth migration compatibility",()=>{
   expect((await db.query("SELECT COUNT(*)::int AS count FROM password_reset_tokens")).rows).toEqual([{count:2}]);
  });
  it("backfills only missing reset-token audit creators on existing tables",async()=>{
-  db=new PGlite();
   await db.exec(`CREATE TABLE users (id UUID PRIMARY KEY,email TEXT NOT NULL);
    CREATE TABLE password_reset_tokens (
     token_hash CHAR(64) PRIMARY KEY,user_id TEXT NOT NULL,

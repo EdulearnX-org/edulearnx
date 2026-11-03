@@ -1,45 +1,68 @@
-import { RequestHandler } from "express";
+import type { RequestHandler } from "express";
+import { z } from "zod";
 import { query } from "../db/connection.js";
+import { transaction } from "../utils/transaction.js";
+import { HttpError, respondError } from "../utils/errors.js";
+import { idSchema, moneySchema, instantSchema } from "../../shared/validation.js";
+import { hasAdminFeatureAccess } from "../utils/adminPermissionMiddleware.js";
 
 const cleanCode = (value: unknown) => String(value ?? "").trim().toUpperCase();
+const bundleSchema = z.object({
+  name: z.string().trim().min(1).max(255), description: z.string().trim().max(10000).nullable().optional(),
+  price_cents: moneySchema, course_ids: z.array(idSchema).min(2).max(100).refine(ids => new Set(ids).size === ids.length, "Choose distinct courses"),
+  starts_at: instantSchema.nullable().optional(), ends_at: instantSchema.nullable().optional(), is_active: z.boolean().optional(),
+}).strict();
 
-export const getBundles: RequestHandler = async (_req, res) => {
+export const getBundles: RequestHandler = async (req, res) => {
   try {
+    const admin = req.user?.role === "admin" && await hasAdminFeatureAccess(req.user.userId, "deals");
     const result = await query(`SELECT b.*, COALESCE(json_agg(json_build_object('id', c.id, 'title', c.title, 'price_cents', c.price_cents) ORDER BY c.title) FILTER (WHERE c.id IS NOT NULL), '[]') AS courses
-      FROM bundle_deals b LEFT JOIN bundle_deal_courses bc ON bc.bundle_id = b.id LEFT JOIN courses c ON c.id = bc.course_id
+      FROM bundle_deals b LEFT JOIN bundle_deal_courses bc ON bc.bundle_id=b.id LEFT JOIN courses c ON c.id=bc.course_id
+      ${admin ? "" : `WHERE b.is_active=true AND (b.starts_at IS NULL OR b.starts_at<=CURRENT_TIMESTAMP)
+        AND (b.ends_at IS NULL OR b.ends_at>CURRENT_TIMESTAMP)
+        AND NOT EXISTS (SELECT 1 FROM bundle_deal_courses links JOIN courses draft ON draft.id=links.course_id WHERE links.bundle_id=b.id AND draft.is_published IS DISTINCT FROM TRUE)`}
       GROUP BY b.id ORDER BY b.created_at DESC`);
-    res.json({ success: true, data: result.rows });
-  } catch (error) { console.error("Error fetching bundles:", error); res.status(500).json({ success: false, error: "Failed to fetch bundles" }); }
+    res.set("Cache-Control", "no-store");
+    return res.json({ success: true, data: result.rows });
+  } catch (error) { return respondError(res,error,"Failed to fetch bundles"); }
 };
 
-export const createBundle: RequestHandler = async (req, res) => {
-  const { name, description, price_cents, course_ids, starts_at, ends_at, is_active = true } = req.body;
-  if (!String(name || "").trim() || !Number.isInteger(Number(price_cents)) || Number(price_cents) < 0 || !Array.isArray(course_ids) || course_ids.length < 2) return res.status(400).json({ success: false, error: "Name, a non-negative price, and at least two courses are required" });
-  if (starts_at && ends_at && new Date(starts_at) >= new Date(ends_at)) return res.status(400).json({ success: false, error: "End date must be after the start date" });
+function saveBundle(create: boolean): RequestHandler {
+  return async (req,res) => {
+    try {
+      const patch = create ? bundleSchema.parse(req.body) : bundleSchema.partial().parse(req.body);
+      const id = create ? undefined : idSchema.parse(req.params.id);
+      const bundle = await transaction(async client => {
+        const existing = create ? {} : (await client.query("SELECT * FROM bundle_deals WHERE id=$1 FOR UPDATE",[id])).rows[0];
+        if (!existing) throw new HttpError(404,"Bundle not found");
+        const values = { ...existing, ...patch };
+        if (values.starts_at && values.ends_at && new Date(values.starts_at) >= new Date(values.ends_at)) throw new HttpError(400,"End date must be after start date");
+        if (patch.course_ids) {
+          const courses = await client.query("SELECT id FROM courses WHERE id::text=ANY($1::text[]) FOR SHARE",[patch.course_ids]);
+          if (courses.rows.length !== patch.course_ids.length) throw new HttpError(400,"One or more courses do not exist");
+        }
+        const params = [values.name,values.description || null,values.price_cents,values.starts_at || null,values.ends_at || null,values.is_active ?? true];
+        const result = create
+          ? await client.query("INSERT INTO bundle_deals(name,description,price_cents,starts_at,ends_at,is_active) VALUES($1,$2,$3,$4,$5,$6) RETURNING *",params)
+          : await client.query("UPDATE bundle_deals SET name=$1,description=$2,price_cents=$3,starts_at=$4,ends_at=$5,is_active=$6,updated_at=CURRENT_TIMESTAMP WHERE id=$7 RETURNING *",[...params,id]);
+        if (patch.course_ids) {
+          await client.query("DELETE FROM bundle_deal_courses WHERE bundle_id=$1",[result.rows[0].id]);
+          for (const course of patch.course_ids) await client.query("INSERT INTO bundle_deal_courses(bundle_id,course_id) VALUES($1,$2)",[result.rows[0].id,course]);
+        }
+        return result.rows[0];
+      });
+      return res.status(create ? 201 : 200).json({success:true,data:bundle});
+    } catch (error) { return respondError(res,error,"Unable to save bundle"); }
+  };
+}
+export const createBundle = saveBundle(true);
+export const updateBundle = saveBundle(false);
+export const deleteBundle: RequestHandler = async(req,res) => {
   try {
-    const bundle = await query("INSERT INTO bundle_deals (name, description, price_cents, starts_at, ends_at, is_active) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *", [String(name).trim(), description || null, Number(price_cents), starts_at || null, ends_at || null, Boolean(is_active)]);
-    for (const courseId of [...new Set(course_ids.map(String))]) await query("INSERT INTO bundle_deal_courses (bundle_id, course_id) VALUES ($1,$2)", [bundle.rows[0].id, courseId]);
-    res.status(201).json({ success: true, data: bundle.rows[0], message: "Bundle deal created" });
-  } catch (error: any) { console.error("Error creating bundle:", error); res.status(error?.code === "23503" ? 400 : 500).json({ success: false, error: error?.code === "23503" ? "One or more courses do not exist" : "Failed to create bundle" }); }
-};
-
-export const deleteBundle: RequestHandler = async (req, res) => {
-  try { const result = await query("DELETE FROM bundle_deals WHERE id = $1 RETURNING id", [req.params.id]); if (!result.rows.length) return res.status(404).json({ success: false, error: "Bundle not found" }); res.json({ success: true, data: result.rows[0] }); }
-  catch (error) { console.error("Error deleting bundle:", error); res.status(500).json({ success: false, error: "Failed to delete bundle" }); }
-};
-
-export const updateBundle: RequestHandler = async (req, res) => {
-  const { name, description, price_cents, course_ids, starts_at, ends_at, is_active } = req.body;
-  if (starts_at && ends_at && new Date(starts_at) >= new Date(ends_at)) return res.status(400).json({ success: false, error: "End date must be after the start date" });
-  try {
-    const result = await query("UPDATE bundle_deals SET name = COALESCE($1, name), description = CASE WHEN $8 THEN $2 ELSE description END, price_cents = COALESCE($3, price_cents), starts_at = CASE WHEN $9 THEN $4 ELSE starts_at END, ends_at = CASE WHEN $10 THEN $5 ELSE ends_at END, is_active = COALESCE($6, is_active), updated_at = CURRENT_TIMESTAMP WHERE id = $7 RETURNING *", [name?.trim() || null, description || null, price_cents === undefined ? null : Number(price_cents), starts_at || null, ends_at || null, is_active === undefined ? null : Boolean(is_active), req.params.id, Object.prototype.hasOwnProperty.call(req.body, "description"), Object.prototype.hasOwnProperty.call(req.body, "starts_at"), Object.prototype.hasOwnProperty.call(req.body, "ends_at")]);
-    if (!result.rows.length) return res.status(404).json({ success: false, error: "Bundle not found" });
-    if (Array.isArray(course_ids)) {
-      await query("DELETE FROM bundle_deal_courses WHERE bundle_id = $1", [req.params.id]);
-      for (const courseId of [...new Set(course_ids.map(String))]) await query("INSERT INTO bundle_deal_courses (bundle_id, course_id) VALUES ($1,$2)", [req.params.id, courseId]);
-    }
-    res.json({ success: true, data: result.rows[0], message: "Bundle updated" });
-  } catch (error) { console.error("Error updating bundle:", error); res.status(500).json({ success: false, error: "Failed to update bundle" }); }
+    const result=await query("DELETE FROM bundle_deals WHERE id=$1 RETURNING id",[idSchema.parse(req.params.id)]);
+    if (!result.rows[0]) throw new HttpError(404,"Bundle not found");
+    return res.json({success:true,data:result.rows[0]});
+  } catch(error) { return respondError(res,error,"Unable to delete bundle"); }
 };
 
 export const getPromoCodes: RequestHandler = async (_req, res) => {

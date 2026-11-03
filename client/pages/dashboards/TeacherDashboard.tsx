@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import CourseZoomLinkEditor from "@/components/CourseZoomLinkEditor";
 import { courseDateRange, courseDuration, useCourses } from "@/hooks/useCourses";
 import {
   buildFiveWeekdayClassTimes,
@@ -93,7 +94,7 @@ export default function TeacherDashboard() {
   return (
     <DashboardLayout
       title="Teacher Dashboard"
-      subtitle="Assign timings for your courses."
+      subtitle="Manage Zoom links and timings for your courses."
       navItems={navItems}
       userRole="Teacher"
     >
@@ -103,7 +104,7 @@ export default function TeacherDashboard() {
             Teacher Dashboard
           </h1>
           <p className="mt-2 text-sm font-medium text-slate-700 dark:text-slate-300">
-            Assign course timings and review your scheduled live classes.
+            Add Zoom links to your assigned courses and manage class timings.
           </p>
         </header>
 
@@ -225,6 +226,7 @@ export default function TeacherDashboard() {
                     <p className="mt-2 font-mono text-xs font-bold tracking-wide text-blue-700 dark:text-blue-300">
                       Meeting ID: {course.meeting_id || "Preparing meeting..."}
                     </p>
+                    <CourseZoomLinkEditor courseId={course.id} />
                   </div>
                 ))
               )}

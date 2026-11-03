@@ -8,7 +8,7 @@ import { sendError } from "../utils/api.js";
 
 const updateProfileSchema = z.object({
   full_name: z.string().trim().min(1).max(255).optional(),
-  phone: z.string().trim().max(50).nullable().optional(),
+  phone: z.string().trim().max(20).nullable().optional(),
   profile_image_url: z.union([z.literal(""), z.string().url().max(2048).refine((url) => /^https?:/.test(url))]).nullable().optional(),
   is_active: z.boolean().optional(),
 }).strict();
@@ -77,7 +77,7 @@ export const createUser: RequestHandler = async (req, res) => {
       email: z.string().trim().toLowerCase().email().max(255),
       full_name: z.string().trim().min(1).max(255),
       role: z.enum(["admin", "teacher", "student"]),
-      phone: z.string().trim().max(50).nullable().optional(),
+      phone: z.string().trim().max(20).nullable().optional(),
     }).safeParse(req.body);
     if (!parsed.success) return sendError(res, "Provide a valid email, full name, and role", 400);
     const { email: normalizedEmail, full_name, role, phone } = parsed.data;

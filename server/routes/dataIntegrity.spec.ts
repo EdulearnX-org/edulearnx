@@ -6,7 +6,7 @@ vi.mock("../db/connection.js", () => ({ query: vi.fn(), isDatabaseConfigured: tr
 
 import { query } from "../db/connection.js";
 import { initializeDatabase } from "../db/schema.js";
-import { getCourseById } from "./courses.js";
+import { getCourseById, getCourses } from "./courses.js";
 import { updateBundle } from "./deals.js";
 import { getCourseProgress } from "./progress.js";
 import { getStudentRewards } from "./rewards.js";
@@ -21,6 +21,7 @@ async function request(handler: RequestHandler, values: Partial<Request>) {
     body: undefined as any,
     status(code: number) { this.statusCode = code; return this; },
     json(body: unknown) { this.body = body; return this; },
+    set() { return this; },
   };
   await handler({ params: {}, body: {}, ...values } as Request, res as unknown as Response, vi.fn());
   expect(res.statusCode).toBeLessThan(400);
@@ -62,6 +63,15 @@ describe("database data integrity", () => {
     const response = await request(getCourseById, { params: { id: "201" } });
     expect(response.data.price_cents).toBe(3999);
     expect((response.data.price_cents / 100).toFixed(2)).toBe("39.99");
+  });
+
+  it("keeps private Zoom links out of public course responses", async () => {
+    await db.exec("UPDATE courses SET zoom_link='https://zoom.us/j/123?pwd=private' WHERE id=201");
+    const list = await request(getCourses, {});
+    const detail = await request(getCourseById, { params: { id: "201" } });
+    expect(list.data[0]).not.toHaveProperty("zoom_link");
+    expect(detail.data).not.toHaveProperty("zoom_link");
+    expect(JSON.stringify([list, detail])).not.toContain("pwd=private");
   });
 
   it("preserves a bundle's description and schedule when toggling its active state", async () => {

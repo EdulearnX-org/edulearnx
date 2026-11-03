@@ -3,7 +3,7 @@ import Footer from "@/components/Footer";
 import Navbar from "@/components/Navbar";
 import Reveal from "@/components/Reveal";
 import { courseDateRange, courseDuration, useCourses } from "@/hooks/useCourses";
-import { usePortalStats } from "@/hooks/usePortalStats";
+import { usePublicStats } from "@/hooks/usePortalStats";
 import { useStudentEnrollments } from "@/hooks/useStudentEnrollments";
 import { getCurrentPortalUser } from "@/lib/portalData";
 import { Link } from "react-router-dom";
@@ -35,7 +35,7 @@ const features = [
 ];
 
 export default function Index() {
-  const portalStats = usePortalStats();
+  const portalStats = usePublicStats();
   const { courses, isLoading: coursesLoading, error: coursesError } = useCourses();
   const currentUser = getCurrentPortalUser();
   const studentId = currentUser?.role === "student" ? currentUser.id : undefined;
@@ -47,12 +47,6 @@ export default function Index() {
     { number: portalStats.totalStudents, label: "Active Students" },
     { number: portalStats.totalCourses, label: "Courses" },
     { number: portalStats.totalEnrollments, label: "Enrollments" },
-  ];
-  const companyStats = [
-    { label: "Students", value: portalStats.totalStudents },
-    { label: "Courses", value: portalStats.totalCourses },
-    { label: "Enrollments", value: portalStats.totalEnrollments },
-    { label: "Pending", value: portalStats.pendingEnrollmentRequests },
   ];
 
   return (

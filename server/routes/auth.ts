@@ -132,10 +132,19 @@ export const login: RequestHandler = async (req,res) => {
 };
 
 export const getSession: RequestHandler = async(req,res)=>{
+  res.setHeader("Cache-Control","no-store");
+  const token = readSessionToken(req);
+  // This public probe also runs for visitors who have never signed in.
+  if (!token) return sendSuccess(res,null,"Signed out");
   try {
-    const result = await query(`SELECT ${profileColumns} FROM users WHERE id=$1 AND is_active IS DISTINCT FROM FALSE`,[req.user?.userId]);
-    if (!result.rows[0]) { clearAuthCookie(res); return sendError(res,"Invalid or expired session",401); }
-    res.setHeader("Cache-Control","no-store");
+    const result = await query(
+      `SELECT ${profileColumns.split(", ").map(column => `u.${column}`).join(", ")}
+       FROM auth_sessions s JOIN users u ON u.id::text = s.user_id
+       WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP
+         AND u.is_active IS DISTINCT FROM FALSE`,
+      [hashAuthToken(token)],
+    );
+    if (!result.rows[0]) { clearAuthCookie(res); return sendSuccess(res,null,"Signed out"); }
     return sendSuccess(res,publicProfile(result.rows[0]),"Session loaded");
   } catch { return sendError(res,"Unable to load auth session",503); }
 };
@@ -248,7 +257,7 @@ authRouter.use((req,res,next)=>{
 });
 authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
-authRouter.get("/session",requireAuth,getSession);
+authRouter.get("/session",getSession);
 authRouter.post("/logout",logout);
 authRouter.post("/forgot-password",rateLimit("forgot-password",5,60*60*1000),forgotPassword);
 authRouter.post("/reset-password",rateLimit("reset-password",20,15*60*1000),resetPassword);

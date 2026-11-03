@@ -33,3 +33,19 @@ it("keeps Neon statistics available when optional Supabase enrollment storage is
   expect(payload.data).toMatchObject({ totalEnrollments: 6, pendingEnrollmentRequests: 0 });
   expect(getPendingEnrollmentRequestCount).not.toHaveBeenCalled();
 });
+
+it("keeps public totals independent of private enrollment-review storage and caches only the public fields", async () => {
+  await loadStats(true);
+  const { query } = await import("../db/connection.js");
+  const { getPendingEnrollmentRequestCount } = await import("./enrollmentRequests.js");
+  vi.mocked(query).mockClear();
+  vi.mocked(getPendingEnrollmentRequestCount).mockClear();
+  const { getPublicStats } = await import("./stats.js");
+  const response = { json: vi.fn() };
+  await getPublicStats({} as Request, response as unknown as Response, vi.fn());
+  await getPublicStats({} as Request, response as unknown as Response, vi.fn());
+  expect(response.json.mock.calls[0][0].data).toEqual({ totalStudents: 4, totalCourses: 3, totalEnrollments: 6 });
+  expect(response.json.mock.calls[1][0].data).toEqual(response.json.mock.calls[0][0].data);
+  expect(query).toHaveBeenCalledOnce();
+  expect(getPendingEnrollmentRequestCount).not.toHaveBeenCalled();
+});

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { readApiResponse } from "@/lib/api";
-import { preloadCourses } from "@/hooks/useCourses";
 
 export type PlatformStats = {
   totalStudents: number;
@@ -20,8 +19,15 @@ const emptyStats: PlatformStats = {
   revenue: 0,
 };
 
-export function usePortalStats() {
-  const [stats, setStats] = useState(emptyStats);
+type PublicStats = Pick<PlatformStats, "totalStudents" | "totalCourses" | "totalEnrollments">;
+const emptyPublicStats: PublicStats = {
+  totalStudents: 0,
+  totalCourses: 0,
+  totalEnrollments: 0,
+};
+
+function useStats<T extends object>(endpoint: string, initialStats: T) {
+  const [stats, setStats] = useState(initialStats);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -31,8 +37,7 @@ export function usePortalStats() {
     const loadStats = async () => {
       try {
         setIsLoading(true);
-        await preloadCourses();
-        const response = await fetch("/api/platform-stats");
+        const response = await fetch(endpoint);
         const payload = await readApiResponse(response);
 
         if (!response.ok || !payload.success) {
@@ -40,12 +45,12 @@ export function usePortalStats() {
         }
 
         if (isMounted) {
-          setStats({ ...emptyStats, ...payload.data });
+          setStats({ ...initialStats, ...payload.data });
           setError("");
         }
       } catch (err) {
         if (isMounted) {
-          setStats(emptyStats);
+          setStats(initialStats);
           setError(
             err instanceof Error ? err.message : "Unable to fetch platform stats.",
           );
@@ -64,7 +69,15 @@ export function usePortalStats() {
       isMounted = false;
       window.removeEventListener("edulearnx-data-change", loadStats);
     };
-  }, []);
+  }, [endpoint, initialStats]);
 
   return { ...stats, isLoading, error };
+}
+
+export function usePortalStats() {
+  return useStats("/api/platform-stats", emptyStats);
+}
+
+export function usePublicStats() {
+  return useStats("/api/public-stats", emptyPublicStats);
 }

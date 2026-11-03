@@ -45,7 +45,9 @@ export async function canAccessCourse(
       "SELECT id FROM enrollments WHERE student_id = $1 AND course_id = $2",
       [actor.userId, courseId],
     );
-    return enrollment.rows.length > 0 ? "enrolled" : "preview";
+    if (enrollment.rows.length > 0) return "enrolled";
+    const published = await query("SELECT id FROM courses WHERE id=$1 AND is_published=true", [courseId]);
+    return published.rows.length > 0 ? "preview" : false;
   }
 
   if (actor.role === "teacher") {

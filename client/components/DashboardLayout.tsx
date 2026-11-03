@@ -2,6 +2,7 @@ import { ReactNode, useState } from "react";
 import EduLearnXLogo from "@/components/EduLearnXLogo";
 import ThemeToggle from "@/components/ThemeToggle";
 import { useStudentRewards } from "@/hooks/useStudentRewards";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   BookOpen,
   Coins,
@@ -41,7 +42,10 @@ export default function DashboardLayout({
   navItems,
   userRole,
 }: DashboardLayoutProps) {
-  const [menuOpen, setMenuOpen] = useState(true);
+  const isMobile = useIsMobile();
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const menuOpen = isMobile ? mobileMenuOpen : desktopMenuOpen;
   const [logoutError, setLogoutError] = useState("");
   const isStudent = userRole === "Student";
   const currentPortalUser = isStudent ? getCurrentPortalUser() : null;
@@ -171,7 +175,9 @@ export default function DashboardLayout({
       <button
         type="button"
         aria-label={menuOpen ? "Hide menu" : "Show menu"}
-        onClick={() => setMenuOpen((open) => !open)}
+        aria-expanded={menuOpen}
+        aria-controls="portal-navigation"
+        onClick={() => isMobile ? setMobileMenuOpen((open) => !open) : setDesktopMenuOpen((open) => !open)}
         className="fixed left-4 top-4 z-50 inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 bg-white text-slate-950 shadow-sm transition hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-900 dark:text-white dark:hover:bg-slate-800"
       >
         {menuOpen ? (
@@ -181,7 +187,11 @@ export default function DashboardLayout({
         )}
       </button>
 
+      {isMobile && menuOpen && <button type="button" aria-label="Close navigation" onClick={() => setMobileMenuOpen(false)} className="fixed inset-0 z-30 bg-slate-950/50 md:hidden" />}
+
       <aside
+        id="portal-navigation"
+        inert={!menuOpen}
         className={`fixed inset-y-0 left-0 z-40 flex w-72 flex-col transition-transform duration-300 ${themedStudentShell ? "student-theme-sidebar border-white/10" : "border-r border-slate-300 bg-white dark:border-slate-800 dark:bg-slate-900"} ${
           menuOpen ? "translate-x-0" : "-translate-x-full"
         }`}
@@ -198,6 +208,7 @@ export default function DashboardLayout({
                 <Link
                   key={item.href}
                   to={item.href}
+                  onClick={() => { if (isMobile) setMobileMenuOpen(false); }}
                   className={`flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-bold transition ${
                     isActive
                       ? themedStudentShell
@@ -280,8 +291,8 @@ export default function DashboardLayout({
       </aside>
 
       <main
-        className={`min-h-screen px-4 py-20 transition-[margin,padding] duration-300 sm:px-6 lg:pr-8 ${themedStudentShell ? "student-theme-main" : ""} ${
-          menuOpen ? "ml-72 lg:pl-8" : "ml-0 lg:pl-8"
+        className={`min-h-screen min-w-0 px-4 py-20 transition-[margin,padding] duration-300 sm:px-6 lg:pr-8 ${themedStudentShell ? "student-theme-main" : ""} ${
+          menuOpen ? "md:ml-72 lg:pl-8" : "ml-0 lg:pl-8"
         }`}
       >
         {children}

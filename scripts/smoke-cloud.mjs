@@ -54,7 +54,7 @@ try {
   await request("/auth/login", { email, password: "incorrect-password" }, 401);
   const oldCookie = cookie;
   await request("/auth/logout", {});
-  await request("/auth/session", undefined, 401, oldCookie);
+  assert.equal((await request("/auth/session", undefined, 200, oldCookie)).payload.data, null);
   await request("/auth/login", { email, password });
   const beforeReset = cookie;
   await request("/auth/forgot-password", { email });
@@ -70,7 +70,7 @@ try {
   const mail = await (await fetch(`http://127.0.0.1:18025/api/v1/message/${mailId}`)).json();
   const token = new URL(mail.Text.match(/http[^\s]+\/reset-password\?token=[^\s]+/)[0]).searchParams.get("token");
   await request("/auth/reset-password", { token, password: newPassword });
-  await request("/auth/session", undefined, 401, beforeReset);
+  assert.equal((await request("/auth/session", undefined, 200, beforeReset)).payload.data, null);
   await request("/auth/reset-password", { token, password: newPassword }, 400);
   await request("/auth/login", { email, password }, 401);
   await request("/auth/login", { email, password: newPassword });

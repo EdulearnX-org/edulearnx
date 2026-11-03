@@ -52,6 +52,8 @@ Old environment bindings `VITE_NEON_AUTH_URL`, `NEON_AUTH_URL`, and Supabase pub
 
 ## Optional enrollment storage and video
 
+Course teachers and admins with course-management permission can save a Zoom invitation link on each course in their portal. Enrolled students can open it with **Join class** on their dashboard, enrolled-course list, or catalog card. Links are private to enrolled students, assigned teachers, and course administrators. Existing production databases must apply `server/db/migrations/20261030_course_zoom_link.sql`; development startup adds the column automatically. This works with ordinary Zoom invitation links and does not require Zoom Video SDK credentials.
+
 Supabase remains an optional server-side integration for enrollment applications and private payment receipts, independent of authentication. Configure `SUPABASE_URL` (or existing `VITE_SUPABASE_URL`) and `SUPABASE_SECRET_KEY` (legacy service-role key also accepted). Never expose this server key through a `VITE_` variable. Apply `supabase/migrations/20261016_enrollment_applications.sql` in the intended Supabase project. It creates the application table, row-level security, and private `payment-receipts` bucket.
 
 Receipt routes use the authenticated app session. Approval grants durable Neon enrollment before finalizing the application and queuing receipt deletion. Review retries reconcile committed enrollments after transient failures. Signed receipt URLs expire after 120 seconds and can be refreshed.

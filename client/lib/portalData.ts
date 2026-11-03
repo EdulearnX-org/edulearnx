@@ -174,6 +174,10 @@ export function initializePortalAuth() {
         return null;
       }
       if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to restore your account session.");
+      if (payload.data === null) {
+        if (generation === sessionGeneration) publish({ user: null, isLoading: false, error: "" });
+        return null;
+      }
       const user = await profileFromResponse(payload.data);
       if (generation === sessionGeneration) publish({ user, isLoading: false, error: "" });
       return user;

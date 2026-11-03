@@ -14,6 +14,45 @@ let cachedStats: {
 let cachedAt = 0;
 const CACHE_TTL_MS = 60_000; // 60 seconds
 
+let cachedPublicStats: {
+  totalStudents: number;
+  totalCourses: number;
+  totalEnrollments: number;
+} | null = null;
+let publicCachedAt = 0;
+
+// Only the aggregate totals displayed on the public homepage belong here.
+// Admin metrics and enrollment-review storage stay behind /platform-stats.
+export const getPublicStats: RequestHandler = async (_req, res) => {
+  try {
+    if (!cachedPublicStats || Date.now() - publicCachedAt >= CACHE_TTL_MS) {
+      const result = await query(`
+        SELECT
+          (SELECT COUNT(*)::int FROM users WHERE role = 'student'
+            AND is_active IS DISTINCT FROM FALSE) AS total_students,
+          (SELECT COUNT(*)::int FROM courses) AS total_courses,
+          (SELECT COUNT(*)::int FROM enrollments) AS total_enrollments
+      `);
+      const row = result.rows[0];
+      cachedPublicStats = {
+        totalStudents: row.total_students,
+        totalCourses: row.total_courses,
+        totalEnrollments: row.total_enrollments,
+      };
+      publicCachedAt = Date.now();
+    }
+
+    return res.json({
+      success: true,
+      data: cachedPublicStats,
+      message: "Public stats fetched successfully",
+    });
+  } catch (error) {
+    console.error("Error fetching public stats:", error);
+    return res.status(500).json({ success: false, error: "Failed to fetch public stats" });
+  }
+};
+
 export const getPlatformStats: RequestHandler = async (_req, res) => {
   // Serve from cache if fresh
   if (cachedStats && Date.now() - cachedAt < CACHE_TTL_MS) {

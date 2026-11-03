@@ -7,7 +7,7 @@ import pool,{query} from "../db/connection.js";
 import nodemailer from "nodemailer";
 import {hashPassword} from "../utils/password.js";
 import {hashAuthToken} from "../utils/authMiddleware.js";
-import {login,register,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
+import {getSession,login,register,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
 const db=vi.fn();const release=vi.fn();const sendMail=vi.fn();
 const token=crypto.randomBytes(32).toString("base64url");
 let passwordHash:string;
@@ -22,6 +22,37 @@ beforeEach(()=>{
 });
 afterEach(()=>vi.unstubAllEnvs());
 describe("app-owned authentication",()=>{
+ it.each([undefined,"auth_token=invalid","auth_token=%ZZ"])("returns an uncached signed-out session without querying the database (%s)",async(cookie)=>{
+  const res=response();await getSession(req({}, {headers:{cookie}}),res,vi.fn());
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({success:true,data:null}));
+  expect(res.setHeader).toHaveBeenCalledWith("Cache-Control","no-store");
+  expect(query).not.toHaveBeenCalled();
+ });
+ it("loads only the public profile belonging to the hashed session cookie",async()=>{
+  vi.mocked(query).mockResolvedValue({rows:[{...user,password_hash:"not-public"}]} as never);
+  const res=response();await getSession(req({}, {headers:{cookie:`auth_token=${token}`},user:{userId:999}}),res,vi.fn());
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("s.token_hash = $1"),[hashAuthToken(token)]);
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("s.expires_at > CURRENT_TIMESTAMP"),expect.any(Array));
+  expect(query).toHaveBeenCalledWith(expect.stringContaining("u.is_active IS DISTINCT FROM FALSE"),expect.any(Array));
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({success:true,data:user}));
+  expect(res.clearCookie).not.toHaveBeenCalled();
+ });
+ it("clears an expired or revoked session and returns the signed-out state",async()=>{
+  const res=response();await getSession(req({}, {headers:{cookie:`auth_token=${token}`}}),res,vi.fn());
+  expect(res.status).toHaveBeenCalledWith(200);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({success:true,data:null}));
+  expect(res.clearCookie).toHaveBeenCalledWith("auth_token",expect.objectContaining({path:"/api"}));
+ });
+ it("reports a session database outage without clearing a potentially valid cookie",async()=>{
+  vi.mocked(query).mockRejectedValue(new Error("Database unavailable"));
+  const res=response();await getSession(req({}, {headers:{cookie:`auth_token=${token}`}}),res,vi.fn());
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({success:false}));
+  expect(res.setHeader).toHaveBeenCalledWith("Cache-Control","no-store");
+  expect(res.clearCookie).not.toHaveBeenCalled();
+ });
  it("signs in existing password owners without changing their role and stores only token hashes",async()=>{
   db.mockImplementation(async(sql:string)=>({rows:sql.startsWith("SELECT")?[{...user,password_hash:passwordHash}]:[]}));
   const res=response();await login(req({email:" ADMIN@example.com ",password:"existing-password"}),res,vi.fn());

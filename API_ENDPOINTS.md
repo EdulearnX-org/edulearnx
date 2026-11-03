@@ -8,7 +8,7 @@ All authenticated endpoints use the HTTP-only app session cookie. Authentication
 
 - `POST /auth/register`: `{ email, password, full_name }`; always creates a student.
 - `POST /auth/login`: `{ email, password }`.
-- `GET /auth/session`: current active profile, or 401.
+- `GET /auth/session`: current active profile, or `200` with `data: null` when signed out (including expired/revoked sessions). Database failures return `503`. Protected endpoints still require a valid session and return `401` when unauthenticated.
 - `POST /auth/logout`: revokes the current session.
 - `POST /auth/forgot-password`: `{ email }`; requires SMTP configuration.
 - `POST /auth/reset-password`: `{ token, password }`; single-use email token, revokes all sessions.
@@ -17,6 +17,16 @@ All authenticated endpoints use the HTTP-only app session cookie. Authentication
 Auth mutation bodies use JSON. Administrative mutations require the corresponding feature permission. Users may edit their own safe profile fields through `PUT /users/:id`; role, email, and credentials cannot be changed there.
 
 `GET /instructors` is available to admins with course-management permission. `POST /contact` accepts `{ name, email, subject, message }` and stores the message for support.
+
+## Course Zoom links
+
+- `GET /api/course-zoom-links`: authenticated students receive links for enrolled courses, teachers receive links for assigned courses, and admins with `courses` permission receive all course links. Returns `{ success: true, data: [{ course_id, zoom_link }] }`; links are never included in the public course catalog.
+- `PATCH /api/courses/:id/zoom-link`: accepts `{ zoom_link: "https://zoom.us/j/..." }`. Only the assigned teacher or an admin with `courses` permission can save a link. Send `null` or an empty string to remove it. HTTPS links on Zoom domains are supported, including embedded meeting passcodes.
+- Apply `server/db/migrations/20261030_course_zoom_link.sql` before deploying to an existing production database. Development startup adds the nullable column automatically.
+
+## Statistics
+
+Homepage totals are available without authentication at `GET /api/public-stats` (`totalStudents`, `totalCourses`, and `totalEnrollments` only). `GET /api/platform-stats` includes administrative metrics and requires an authenticated admin with the `overview` permission.
 
 ## Base URL
 ```

@@ -36,7 +36,26 @@ describe("cookie account sessions", () => {
     expect(auth.getCurrentPortalUser()).toBeNull();
   });
 
-  it("does not let an older session restore overwrite a later sign-in", async () => {
+  it("accepts and deduplicates a successful signed-out session response", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(response({ success: true, data: null }));
+    vi.stubGlobal("fetch", fetchMock);
+    const auth = await import("./portalData");
+    await expect(auth.initializePortalAuth()).resolves.toBeNull();
+    await expect(auth.initializePortalAuth()).resolves.toBeNull();
+    expect(auth.getCurrentPortalUser()).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces session outages and allows a later restore to retry", async () => {
+    vi.stubGlobal("fetch", vi.fn()
+      .mockResolvedValueOnce(response({ success: false, error: "Unable to load auth session" }, 503))
+      .mockResolvedValueOnce(response({ success: true, data: profile })));
+    const auth = await import("./portalData");
+    await expect(auth.initializePortalAuth()).rejects.toThrow("Unable to load auth session");
+    await expect(auth.initializePortalAuth()).resolves.toMatchObject({ id: profile.id });
+  });
+
+  it.each([200, 401])("does not let an older signed-out session restore overwrite a later sign-in (%i)", async (status) => {
     let finishRestore!: (value: Response) => void;
     const fetchMock = vi.fn()
       .mockImplementationOnce(() => new Promise<Response>((resolve) => { finishRestore = resolve; }))
@@ -45,7 +64,7 @@ describe("cookie account sessions", () => {
     const auth = await import("./portalData");
     const restore = auth.initializePortalAuth();
     await auth.signInPortal(" Student@Example.com ", "password123");
-    finishRestore(response({ success: false }, 401));
+    finishRestore(response({ success: status === 200, data: null }, status));
     await restore;
     expect(auth.getCurrentPortalUser()?.id).toBe("student-1");
     expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/login");

@@ -50,6 +50,11 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
+export function optionalAuth(req: Request, res: Response, next: NextFunction) {
+  if (!readSessionToken(req)) return next();
+  return requireAuth(req, res, next);
+}
+
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.user) return sendError(res, "Authentication required", 401);

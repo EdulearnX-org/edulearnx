@@ -1,5 +1,10 @@
 import { Request, Response, RequestHandler } from "express";
 import crypto from "node:crypto";
+import { z } from "zod";
+import type { PoolClient } from "pg";
+import { transaction } from "../utils/transaction.js";
+import { HttpError, respondError } from "../utils/errors.js";
+import { idSchema, instantSchema } from "../../shared/validation.js";
 import jwt from "jsonwebtoken";
 import { query } from "../db/connection.js";
 import { isPrimaryAdmin, normalizeAdminPermissions } from "../../shared/adminPermissions.js";
@@ -83,12 +88,48 @@ function classIsActive(row: any) {
   return row.status === "active" && Date.now() <= new Date(row.scheduled_end).getTime();
 }
 
+const scheduleSchema = z.object({
+  course_id: idSchema, teacher_id: idSchema.nullable().optional(),
+  title: z.string().trim().min(1).max(255), description: z.string().trim().max(10000).nullable().optional(),
+  scheduled_start: instantSchema, scheduled_end: instantSchema,
+}).strict();
+function validateWindow(start: string | Date, end: string | Date) {
+  if (!Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime()) || new Date(start)>=new Date(end)) throw new HttpError(400,"End time must be after start time");
+}
+async function validateAssignment(client: PoolClient, actor: any, values: any) {
+  const course=(await client.query("SELECT id,instructor_id FROM courses WHERE id=$1 FOR UPDATE",[values.course_id])).rows[0];
+  if (!course) throw new HttpError(404,"Course not found");
+  if (actor.role==="teacher" && String(course.instructor_id)!==String(actor.id)) throw new HttpError(403,"You can only schedule your assigned courses");
+  const teacher=actor.role==="teacher" ? actor.id : values.teacher_id ?? course.instructor_id;
+  if (!teacher || !(await client.query("SELECT id FROM users WHERE id=$1 AND role='teacher' AND is_active IS DISTINCT FROM FALSE FOR SHARE",[teacher])).rows.length) throw new HttpError(400,"Choose an active teacher");
+  return teacher;
+}
+async function insertClass(client: PoolClient, values: any, teacher: unknown) {
+  validateWindow(values.scheduled_start,values.scheduled_end);
+  return (await client.query(`INSERT INTO live_classes(course_id,teacher_id,title,description,scheduled_start,scheduled_end,room_id)
+    VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[values.course_id,teacher,values.title,values.description || null,values.scheduled_start,values.scheduled_end,roomId()])).rows[0];
+}
+async function closeExpired(client: PoolClient, courseId: unknown) {
+  await client.query(`UPDATE live_class_attendance a SET left_at=lc.scheduled_end,
+    duration_seconds=GREATEST(0,EXTRACT(EPOCH FROM(lc.scheduled_end-a.joined_at))::int)
+    FROM live_classes lc WHERE a.live_class_id=lc.id AND a.left_at IS NULL
+    AND lc.course_id=$1 AND lc.status='active' AND lc.scheduled_end<CURRENT_TIMESTAMP`,[courseId]);
+  await client.query(`UPDATE live_classes SET status='completed',ended_at=scheduled_end,updated_at=CURRENT_TIMESTAMP
+    WHERE course_id=$1 AND status='active' AND scheduled_end<CURRENT_TIMESTAMP`,[courseId]);
+}
+export async function expireCourseClasses(courseId: unknown) {
+  await transaction(async client => {
+    await client.query("SELECT id FROM courses WHERE id=$1 FOR UPDATE",[courseId]);
+    await closeExpired(client,courseId);
+  });
+}
+
 export const getLiveClasses: RequestHandler = async (req, res) => {
   try {
     const actor = await getActor(req, res);
     if (!actor) return;
 
-    const { course_id } = req.query;
+    const { course_id, teacher_id, student_id } = req.query;
     const params: unknown[] = [];
     const where: string[] = [];
     let sql = liveClassSelect;
@@ -107,10 +148,18 @@ export const getLiveClasses: RequestHandler = async (req, res) => {
     }
 
     if (course_id) {
-      params.push(String(course_id));
+      params.push(idSchema.parse(course_id));
       where.push(`lc.course_id = $${params.length}`);
     }
 
+    if (teacher_id) {
+      params.push(idSchema.parse(teacher_id)); where.push(`lc.teacher_id=$${params.length}`);
+    }
+    if (student_id) {
+      const student=idSchema.parse(student_id);
+      if (actor.role === "student" && student !== String(actor.id)) throw new HttpError(403,"You may only view your classes");
+      params.push(student); where.push(`EXISTS(SELECT 1 FROM enrollments e WHERE e.course_id=lc.course_id AND e.student_id=$${params.length})`);
+    }
     if (where.length > 0) {
       sql += ` WHERE ${where.join(" AND ")}`;
     }
@@ -124,168 +173,68 @@ export const getLiveClasses: RequestHandler = async (req, res) => {
       message: "Live classes fetched successfully",
     });
   } catch (error) {
-    console.error("Error fetching live classes:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch live classes",
-    });
+    return respondError(res,error,"Failed to fetch live classes");
   }
 };
 
-export const createLiveClass: RequestHandler = async (req, res) => {
+export const createLiveClass: RequestHandler = async(req,res) => {
   try {
-    const actor = await getActor(req, res);
-    if (!actor) return;
-    if (actor.role !== "teacher" && actor.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Teacher access required" });
-    }
-
-    const {
-      course_id,
-      teacher_id,
-      title,
-      description,
-      scheduled_start,
-      scheduled_end,
-    } = req.body;
-
-    if (!course_id || !title || !scheduled_start || !scheduled_end) {
-      return res.status(400).json({
-        success: false,
-        error: "Course, title, start time, and end time are required",
-      });
-    }
-
-    if (new Date(scheduled_start).getTime() >= new Date(scheduled_end).getTime()) {
-      return res.status(400).json({
-        success: false,
-        error: "End time must be after start time",
-      });
-    }
-
-    const courseResult = await query(
-      "SELECT id, instructor_id FROM courses WHERE id = $1",
-      [course_id],
-    );
-    const course = courseResult.rows[0];
-    if (!course) {
-      return res.status(404).json({ success: false, error: "Course not found" });
-    }
-    if (actor.role === "teacher" && String(course.instructor_id) !== String(actor.id)) {
-      return res.status(403).json({ success: false, error: "You can only schedule classes for your assigned courses" });
-    }
-
-    const resolvedTeacherId = actor.role === "teacher"
-      ? actor.id
-      : teacher_id || course.instructor_id || null;
-
-    const created = await query(
-      `INSERT INTO live_classes (
-        course_id,
-        teacher_id,
-        title,
-        description,
-        scheduled_start,
-        scheduled_end,
-        room_id
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7)
-      RETURNING *`,
-      [
-        course_id,
-        resolvedTeacherId,
-        String(title).trim(),
-        description ? String(description).trim() : null,
-        scheduled_start,
-        scheduled_end,
-        roomId(),
-      ],
-    );
-
-    res.status(201).json({
-      success: true,
-      data: withJoinState(created.rows)[0],
-      message: "Live class scheduled successfully",
-    });
-  } catch (error) {
-    console.error("Error creating live class:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to create live class",
-    });
-  }
+    const actor=await getActor(req,res); if (!actor) return;
+    if (!["teacher","admin"].includes(actor.role)) throw new HttpError(403,"Teacher access required");
+    const values=scheduleSchema.parse(req.body);
+    const created=await transaction(async client => insertClass(client,values,await validateAssignment(client,actor,values)));
+    return res.status(201).json({success:true,data:withJoinState([created])[0]});
+  } catch(error) { return respondError(res,error,"Unable to schedule class"); }
 };
 
-export const updateLiveClass: RequestHandler = async (req, res) => {
+export const createClassBatch: RequestHandler = async(req,res) => {
   try {
-    const actor = await getActor(req, res);
-    if (!actor) return;
-    if (actor.role !== "admin") {
-      return res.status(403).json({ success: false, error: "Admin access required" });
-    }
-
-    const { id } = req.params;
-    const {
-      course_id,
-      teacher_id,
-      title,
-      description,
-      scheduled_start,
-      scheduled_end,
-      status,
-    } = req.body;
-
-    if (status && !["scheduled", "cancelled", "completed"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid live class status",
-      });
-    }
-
-    const result = await query(
-      `UPDATE live_classes
-       SET course_id = COALESCE($1, course_id),
-           teacher_id = CASE WHEN $2 THEN $3 ELSE teacher_id END,
-           title = COALESCE($4, title),
-           description = CASE WHEN $5 THEN $6 ELSE description END,
-           scheduled_start = COALESCE($7, scheduled_start),
-           scheduled_end = COALESCE($8, scheduled_end),
-           status = COALESCE($9, status),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $10
-       RETURNING *`,
-      [
-        course_id || null,
-        Object.prototype.hasOwnProperty.call(req.body, "teacher_id"),
-        teacher_id || null,
-        title ? String(title).trim() : null,
-        Object.prototype.hasOwnProperty.call(req.body, "description"),
-        description ? String(description).trim() : null,
-        scheduled_start || null,
-        scheduled_end || null,
-        status || null,
-        id,
-      ],
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Live class not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: withJoinState(result.rows)[0],
-      message: "Live class updated successfully",
+    const actor=await getActor(req,res); if (!actor) return;
+    if (!["teacher","admin"].includes(actor.role)) throw new HttpError(403,"Teacher access required");
+    const input=scheduleSchema.omit({scheduled_start:true,scheduled_end:true}).extend({
+      request_id:z.uuid(), sessions:z.array(z.object({scheduled_start:instantSchema,scheduled_end:instantSchema}).strict()).length(5),
+    }).parse(req.body);
+    const {request_id,sessions,...details}=input;
+    sessions.forEach(session=>validateWindow(session.scheduled_start,session.scheduled_end));
+    if (new Set(sessions.map(session=>session.scheduled_start)).size!==sessions.length) throw new HttpError(400,"Choose distinct class times");
+    const hash=crypto.createHash("sha256").update(JSON.stringify({details,sessions})).digest("hex");
+    const result=await transaction(async client => {
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(actor.id),request_id]);
+      const previous=(await client.query("SELECT request_hash,class_ids FROM class_schedule_batches WHERE actor_id=$1 AND request_id=$2",[String(actor.id),request_id])).rows[0];
+      if (previous) {
+        if (previous.request_hash!==hash) throw new HttpError(409,"This scheduling request was already used for different classes");
+        return {class_ids:previous.class_ids,replayed:true};
+      }
+      const teacher=await validateAssignment(client,actor,details);
+      const ids=[];
+      for (const session of sessions) ids.push((await insertClass(client,{...details,...session},teacher)).id);
+      await client.query("INSERT INTO class_schedule_batches(actor_id,request_id,request_hash,class_ids) VALUES($1,$2,$3,$4::jsonb)",[String(actor.id),request_id,hash,JSON.stringify(ids)]);
+      return {class_ids:ids,replayed:false};
     });
-  } catch (error) {
-    console.error("Error updating live class:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to update live class",
+    return res.status(result.replayed ? 200 : 201).json({success:true,data:result});
+  } catch(error) { return respondError(res,error,"Unable to schedule classes"); }
+};
+
+export const updateLiveClass: RequestHandler = async(req,res) => {
+  try {
+    const actor=await getActor(req,res); if (!actor) return;
+    if (actor.role!=="admin") throw new HttpError(403,"Admin access required");
+    const id=idSchema.parse(req.params.id);
+    const patch=scheduleSchema.partial().extend({status:z.enum(["scheduled","cancelled","completed"]).optional()}).parse(req.body);
+    const updated=await transaction(async client => {
+      const current=(await client.query("SELECT * FROM live_classes WHERE id=$1 FOR UPDATE",[id])).rows[0];
+      if (!current) throw new HttpError(404,"Live class not found");
+      if (current.status!=="scheduled" && Object.keys(patch).some(key=>key!=="status")) throw new HttpError(409,"Only scheduled classes can be edited");
+      if (current.status!=="scheduled" && patch.status==="scheduled") throw new HttpError(409,"Create a new class instead of reopening an ended class");
+      const values={...current,...patch};validateWindow(values.scheduled_start,values.scheduled_end);
+      const teacher=await validateAssignment(client,actor,values);
+      if (current.status==="active" && ["completed","cancelled"].includes(values.status)) await client.query(`UPDATE live_class_attendance SET left_at=CURRENT_TIMESTAMP,duration_seconds=GREATEST(0,EXTRACT(EPOCH FROM(CURRENT_TIMESTAMP-joined_at))::int) WHERE live_class_id=$1 AND left_at IS NULL`,[id]);
+      return (await client.query(`UPDATE live_classes SET course_id=$1,teacher_id=$2,title=$3,description=$4,scheduled_start=$5,scheduled_end=$6,status=$7,
+        ended_at=CASE WHEN $7 IN ('completed','cancelled') THEN COALESCE(ended_at,CURRENT_TIMESTAMP) ELSE ended_at END,updated_at=CURRENT_TIMESTAMP WHERE id=$8 RETURNING *`,
+        [values.course_id,teacher,values.title,values.description || null,values.scheduled_start,values.scheduled_end,values.status,id])).rows[0];
     });
-  }
+    return res.json({success:true,data:withJoinState([updated])[0]});
+  } catch(error) { return respondError(res,error,"Unable to update class"); }
 };
 
 export const deleteLiveClass: RequestHandler = async (req, res) => {
@@ -342,7 +291,8 @@ export const startLiveClass: RequestHandler = async (req, res) => {
     if (!canManageClass(actor, row)) {
       return res.status(403).json({ success: false, error: "Only the assigned teacher can start this class" });
     }
-    if (row.status === "active") {
+    await expireCourseClasses(row.course_id);
+    if (row.status === "active" && Date.now() <= new Date(row.scheduled_end).getTime()) {
       return res.json({ success: true, data: withJoinState([row])[0] });
     }
     if (row.status !== "scheduled") {
@@ -354,13 +304,17 @@ export const startLiveClass: RequestHandler = async (req, res) => {
       return res.status(409).json({ success: false, error: "This class is outside its scheduled start window" });
     }
 
-    const started = await query(
+    const started = await transaction(async client => {
+      await client.query("SELECT id FROM courses WHERE id=$1 FOR UPDATE",[row.course_id]);
+      await closeExpired(client,row.course_id);
+      return client.query(
       `UPDATE live_classes
        SET status = 'active', started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = $1 AND status = 'scheduled'
        RETURNING *`,
       [req.params.id],
     );
+    });
     if (started.rows.length === 0) {
       return res.status(409).json({ success: false, error: "This class is already active or has ended" });
     }
@@ -435,9 +389,9 @@ export const getLiveClassStatus: RequestHandler = async (req, res) => {
     if (!["admin", "teacher", "student"].includes(actor.role)) {
       return res.status(403).json({ success: false, error: "Live class access required" });
     }
-    const status = row.status === "active" && Date.now() > new Date(row.scheduled_end).getTime()
-      ? "completed"
-      : row.status;
+    const expired = row.status === "active" && Date.now() > new Date(row.scheduled_end).getTime();
+    if (expired) await expireCourseClasses(row.course_id);
+    const status = expired ? "completed" : row.status;
     res.json({ success: true, data: { id: row.id, status } });
   } catch (error) {
     console.error("Error fetching live class status:", error);

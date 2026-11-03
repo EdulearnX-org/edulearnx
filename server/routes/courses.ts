@@ -1,204 +1,101 @@
-import { RequestHandler } from "express";
+import type { RequestHandler } from "express";
 import crypto from "node:crypto";
+import { z } from "zod";
 import { query } from "../db/connection.js";
-import type { Course, CreateCourseRequest, ApiResponse } from "@shared/api";
 import { hasAdminFeatureAccess } from "../utils/adminPermissionMiddleware.js";
+import { courseVisibility } from "../utils/courseAccess.js";
+import { transaction } from "../utils/transaction.js";
+import { HttpError, respondError } from "../utils/errors.js";
+import { dateSchema, idSchema, moneySchema, optionalText } from "../../shared/validation.js";
+import { courseProgressSql } from "../utils/courseProgress.js";
 
-function meetingId() {
-  return `ELX-${crypto.randomBytes(5).toString("hex").toUpperCase()}`;
-}
+const fields = z.object({
+  title: z.string().trim().min(1).max(255),
+  description: optionalText(20_000),
+  category: optionalText(100),
+  instructor_id: idSchema.nullable().optional(),
+  duration_weeks: z.number().int().min(1).max(520).nullable().optional(),
+  start_date: dateSchema.nullable().optional(),
+  end_date: dateSchema.nullable().optional(),
+  thumbnail_url: z.union([z.literal(""), z.url().max(2048).refine(value => /^https?:/.test(value))]).nullable().optional(),
+  price_cents: moneySchema,
+  is_published: z.boolean().optional(),
+}).strict();
+const selectCourse = `SELECT c.id, c.title, c.description, c.instructor_id, c.category,
+  c.duration_weeks, c.start_date, c.end_date, c.thumbnail_url, c.meeting_id,
+  c.price_cents, c.is_published, c.created_at, c.updated_at,
+  u.full_name AS instructor_name,
+  (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id=c.id) AS enrollment_count
+  FROM courses c LEFT JOIN users u ON u.id=c.instructor_id`;
 
 export const getCourses: RequestHandler = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT
-        c.*,
-        u.full_name AS instructor_name,
-        (SELECT COUNT(*)::int FROM enrollments e WHERE e.course_id = c.id) AS enrollment_count
-      FROM courses c
-      LEFT JOIN users u ON u.id = c.instructor_id
-      ORDER BY c.created_at DESC`
-    );
-    res.set("Cache-Control", "private, max-age=30");
-    res.json({
-      success: true,
-      data: result.rows,
-      message: "Courses fetched successfully",
-    });
-  } catch (error) {
-    console.error("Error fetching courses:", error);
-    // Fast-fail: return error immediately
-    res.status(500).json({
-      success: false,
-      error: error instanceof Error && error.message.includes("timed out")
-        ? "Database query timed out. Please try again."
-        : "Failed to fetch courses",
-    });
-  }
+    const access = await courseVisibility(req.user);
+    const result = await query(`${selectCourse} WHERE ${access.sql} ORDER BY c.created_at DESC`, access.params);
+    res.set("Cache-Control", "no-store");
+    return res.json({ success: true, data: result.rows });
+  } catch (error) { return respondError(res, error, "Failed to fetch courses"); }
 };
 
 export const getCourseById: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
-    const result = await query(
-      `SELECT
-        c.id,
-        c.title,
-        c.description,
-        c.category,
-        c.duration_weeks,
-        c.start_date,
-        c.end_date,
-        c.thumbnail_url,
-        c.price_cents,
-        c.meeting_id,
-        c.is_published,
-        c.created_at,
-        c.updated_at,
-        c.instructor_id,
-        u.full_name AS instructor_name,
-        COALESCE(ec.enrollment_count, 0)::int AS enrollment_count
-      FROM courses c
-      LEFT JOIN users u ON u.id = c.instructor_id
-      LEFT JOIN (
-        SELECT course_id, COUNT(*)::int AS enrollment_count
-        FROM enrollments
-        GROUP BY course_id
-      ) ec ON ec.course_id = c.id
-      WHERE c.id = $1
-      `,
-      [id],
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Course not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: "Course fetched successfully",
-    });
-  } catch (error) {
-    console.error("Error fetching course:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch course",
-    });
-  }
+    const id = idSchema.parse(req.params.id);
+    const access = await courseVisibility(req.user);
+    const result = await query(`${selectCourse} WHERE ${access.sql} AND c.id=$${access.params.length + 1}`, [...access.params, id]);
+    if (!result.rows[0]) throw new HttpError(404, "Course not found");
+    res.set("Cache-Control", "no-store");
+    return res.json({ success: true, data: result.rows[0] });
+  } catch (error) { return respondError(res, error, "Failed to fetch course"); }
 };
+
+function dateOnly(value: unknown) {
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value ? String(value).slice(0, 10) : null;
+}
+async function validateCourse(client: { query: typeof query }, course: Record<string, any>) {
+  const start = dateOnly(course.start_date), end = dateOnly(course.end_date);
+  if (start && end && start > end) throw new HttpError(400, "Course end date must be on or after its start date");
+  if (course.instructor_id) {
+    const teacher = await client.query("SELECT id FROM users WHERE id=$1 AND role='teacher' AND is_active IS DISTINCT FROM FALSE FOR SHARE", [course.instructor_id]);
+    if (!teacher.rows.length) throw new HttpError(400, "Choose an active teacher");
+  }
+}
 
 export const createCourse: RequestHandler = async (req, res) => {
   try {
-    const {
-      title,
-      description,
-      instructor_id,
-      category,
-      duration_weeks,
-      start_date,
-      end_date,
-      thumbnail_url,
-    } = req.body;
-
-    if (!title) {
-      return res.status(400).json({
-        success: false,
-        error: "Missing required field: title",
-      });
-    }
-
-    if (start_date && end_date && new Date(start_date).getTime() > new Date(end_date).getTime()) {
-      return res.status(400).json({
-        success: false,
-        error: "Course end date must be after the start date",
-      });
-    }
-
-    const result = await query(
-      "INSERT INTO courses (title, description, instructor_id, category, duration_weeks, start_date, end_date, thumbnail_url, meeting_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *",
-      [
-        title,
-        description || null,
-        instructor_id || null,
-        category || null,
-        duration_weeks || null,
-        start_date || null,
-        end_date || null,
-        thumbnail_url || null,
-        meetingId(),
-      ]
-    );
-
-    res.status(201).json({
-      success: true,
-      data: result.rows[0],
-      message: "Course created successfully",
+    const values = fields.parse(req.body);
+    const course = await transaction(async client => {
+      await validateCourse(client, values);
+      const result = await client.query(`INSERT INTO courses
+        (title,description,instructor_id,category,duration_weeks,start_date,end_date,thumbnail_url,price_cents,is_published,meeting_id)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+        [values.title, values.description || null, values.instructor_id ?? null, values.category || null,
+          values.duration_weeks ?? null, values.start_date ?? null, values.end_date ?? null,
+          values.thumbnail_url || null, values.price_cents, values.is_published ?? false,
+          `ELX-${crypto.randomBytes(5).toString("hex").toUpperCase()}`]);
+      return result.rows[0];
     });
-  } catch (error) {
-    console.error("Error creating course:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to create course",
-    });
-  }
+    return res.status(201).json({ success: true, data: course });
+  } catch (error) { return respondError(res, error, "Failed to create course"); }
 };
 
 export const updateCourse: RequestHandler = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { title, description, category, duration_weeks, start_date, end_date, is_published, instructor_id } =
-      req.body;
-    const instructorProvided = Object.prototype.hasOwnProperty.call(
-      req.body,
-      "instructor_id",
-    );
-
-    if (start_date && end_date && new Date(start_date).getTime() > new Date(end_date).getTime()) {
-      return res.status(400).json({
-        success: false,
-        error: "Course end date must be after the start date",
-      });
-    }
-
-    const result = await query(
-      "UPDATE courses SET title = COALESCE($1, title), description = COALESCE($2, description), category = COALESCE($3, category), duration_weeks = COALESCE($4, duration_weeks), start_date = COALESCE($5, start_date), end_date = COALESCE($6, end_date), is_published = COALESCE($7, is_published), instructor_id = CASE WHEN $8 THEN $9 ELSE instructor_id END, updated_at = CURRENT_TIMESTAMP WHERE id = $10 RETURNING *",
-      [
-        title || null,
-        description || null,
-        category || null,
-        duration_weeks || null,
-        start_date || null,
-        end_date || null,
-        is_published !== undefined ? is_published : null,
-        instructorProvided,
-        instructor_id || null,
-        id,
-      ]
-    );
-
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: "Course not found",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: result.rows[0],
-      message: "Course updated successfully",
+    const id = idSchema.parse(req.params.id), patch = fields.partial().parse(req.body);
+    const course = await transaction(async client => {
+      const existing = (await client.query("SELECT * FROM courses WHERE id=$1 FOR UPDATE", [id])).rows[0];
+      if (!existing) throw new HttpError(404, "Course not found");
+      const values = { ...existing, ...patch };
+      await validateCourse(client, values);
+      const result = await client.query(`UPDATE courses SET title=$1,description=$2,instructor_id=$3,category=$4,
+        duration_weeks=$5,start_date=$6,end_date=$7,thumbnail_url=$8,price_cents=$9,is_published=$10,
+        updated_at=CURRENT_TIMESTAMP WHERE id=$11 RETURNING *`,
+        [values.title, values.description || null, values.instructor_id ?? null, values.category || null,
+          values.duration_weeks, dateOnly(values.start_date), dateOnly(values.end_date),
+          values.thumbnail_url || null, values.price_cents, values.is_published, id]);
+      return result.rows[0];
     });
-  } catch (error) {
-    console.error("Error updating course:", error);
-    res.status(500).json({
-      success: false,
-      error: "Failed to update course",
-    });
-  }
+    return res.json({ success: true, data: course });
+  } catch (error) { return respondError(res, error, "Failed to update course"); }
 };
 
 export const deleteCourse: RequestHandler = async (req, res) => {
@@ -288,7 +185,7 @@ export const getEnrollments: RequestHandler = async (req, res) => {
 
     // Validate IDs are numeric (DB uses integer PKs)
     const isValidId = (v: unknown): v is string =>
-      typeof v === "string" && /^\d+$/.test(v);
+      idSchema.safeParse(v).success;
 
     if (student_id && !isValidId(student_id)) {
       return res.status(400).json({ success: false, error: "Invalid student id" });
@@ -299,6 +196,7 @@ export const getEnrollments: RequestHandler = async (req, res) => {
 
     let queryStr = `SELECT
       e.*,
+      ${courseProgressSql("e.student_id", "e.course_id")} AS progress_percentage,
       c.title AS course_title,
       c.description AS course_description,
       c.category AS course_category,

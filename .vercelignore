@@ -11,3 +11,4 @@ logs
 portal-*.log
 *-dev.err.log
 *-dev.out.log
+.vercel/output

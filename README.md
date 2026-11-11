@@ -46,7 +46,7 @@ npm run build
 npm start
 ```
 
-The client builds into `dist/spa` and the server entry is `dist/server/node-build.mjs`. Vercel uses the native `api/[...path].ts` function and `npm run build:vercel`. Netlify settings are in `netlify.toml`; see `NETLIFY_DEPLOY.md`. Deployment/publication requires a separate user action.
+The client builds into `dist/spa` and the server entry is `dist/server/node-build.mjs`. Vercel uses the native `api/index.ts` function and `npm run build:vercel`. Netlify settings are in `netlify.toml`; see `NETLIFY_DEPLOY.md`. Deployment/publication requires a separate user action.
 
 Old environment bindings `VITE_NEON_AUTH_URL`, `NEON_AUTH_URL`, and Supabase publishable/anon authentication keys are unnecessary for sign-in and can be removed from environment settings. Existing binding values are never copied into the repository.
 

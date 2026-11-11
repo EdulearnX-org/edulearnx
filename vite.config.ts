@@ -7,20 +7,6 @@ const projectRoot = import.meta.dirname;
 export default defineConfig({
   build: {
     outDir: "dist/spa",
-    rolldownOptions: {
-      output: {
-        codeSplitting: {
-          groups: [
-            {
-              name: "vendor",
-              test: /node_modules[\\/]/,
-              minSize: 50 * 1024,
-              maxSize: 400 * 1024,
-            },
-          ],
-        },
-      },
-    },
   },
   plugins: [
     react(),

@@ -39,7 +39,7 @@ For real password recovery configure `SMTP_HOST`, `SMTP_PORT` (usually 587), `SM
 
 ## Production and migrations
 
-`DATABASE_URL` and an exact comma-separated `CORS_ORIGIN` are required. Apply the core schema before deployment, followed by `server/db/migrations/20261022_local_auth.sql` and `server/db/migrations/20261022_contact.sql`. Case-insensitive duplicate account emails must be resolved explicitly before the auth migration; roles are never merged automatically. Production startup checks required tables and does not automatically initialize them. For a controlled persistent-server migration only, `INITIALIZE_DATABASE_ON_STARTUP=true` enables the repository initializer; leave it off in serverless deployments.
+`DATABASE_URL` is required. Same-origin deployments can omit `CORS_ORIGIN`; production then sends no cross-origin access headers. For a frontend on a separate origin, configure `CORS_ORIGIN` as an exact comma-separated list of allowed origins. Apply the core schema before deployment, followed by `server/db/migrations/20261022_local_auth.sql` and `server/db/migrations/20261022_contact.sql`. Case-insensitive duplicate account emails must be resolved explicitly before the auth migration; roles are never merged automatically. Production startup checks required tables and does not automatically initialize them. For a controlled persistent-server migration only, `INITIALIZE_DATABASE_ON_STARTUP=true` enables the repository initializer; leave it off in serverless deployments.
 
 ```sh
 npm run build

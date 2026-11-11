@@ -85,7 +85,8 @@ function getCorsOrigin() {
   const configured = process.env.CORS_ORIGIN;
   if (!configured) {
     if (process.env.NODE_ENV === "production") {
-      throw new Error("CORS_ORIGIN must be configured in production.");
+      // Same-origin deployments need no cross-origin response headers.
+      return false;
     }
     return true;
   }

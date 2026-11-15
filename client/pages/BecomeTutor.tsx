@@ -1,3 +1,4 @@
+import { uploadPrivateFile, type UploadReference } from "@/lib/uploads";
 import Navbar from "@/components/Navbar";
 import {
   ArrowRight,
@@ -11,7 +12,7 @@ import {
   UserRound,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useRef } from "react";
 import { Link } from "react-router-dom";
 
 export default function BecomeTutor() {
@@ -20,7 +21,9 @@ export default function BecomeTutor() {
   const [phone, setPhone] = useState("");
   const [expertise, setExpertise] = useState("");
   const [experienceYears, setExperienceYears] = useState("0");
-  const [certificates, setCertificates] = useState<string[]>(["", "", ""]);
+  const [certificates, setCertificates] = useState<(File | null)[]>([null, null, null]);
+  const uploaded = useRef<(UploadReference | null)[]>([null,null,null]);
+  const submitting = useRef(false);
   const [bio, setBio] = useState("");
   const [password, setPassword] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -29,13 +32,18 @@ export default function BecomeTutor() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if(submitting.current) return;
+    submitting.current=true;
     setError("");
     setMessage("");
     setIsSubmitting(true);
 
     try {
+      if(new TextEncoder().encode(password).length>72) throw new Error('Password must be at most 72 UTF-8 bytes.');
+      for(let i=0;i<certificates.length;i++) if(certificates[i] && !uploaded.current[i]) uploaded.current[i]=await uploadPrivateFile(certificates[i]!,'certificate');
       const response = await fetch("/api/tutor-applications", {
         method: "POST",
+        signal: AbortSignal.timeout(90_000),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           full_name: fullName,
@@ -43,9 +51,9 @@ export default function BecomeTutor() {
           phone,
           expertise,
           experience_years: Number(experienceYears),
-          certificate_1: certificates[0],
-          certificate_2: certificates[1],
-          certificate_3: certificates[2],
+          certificate_1: uploaded.current[0],
+          certificate_2: uploaded.current[1],
+          certificate_3: uploaded.current[2],
           bio,
           password,
         }),
@@ -64,7 +72,8 @@ export default function BecomeTutor() {
       setPhone("");
       setExpertise("");
       setExperienceYears("0");
-      setCertificates(["", "", ""]);
+      setCertificates([null, null, null]);
+      uploaded.current=[null,null,null];
       setBio("");
       setPassword("");
       window.dispatchEvent(new Event("edulearnx-data-change"));
@@ -75,6 +84,7 @@ export default function BecomeTutor() {
           : "Unable to submit tutor application.",
       );
     } finally {
+      submitting.current=false;
       setIsSubmitting(false);
     }
   };
@@ -150,6 +160,7 @@ export default function BecomeTutor() {
                     onChange={(event) => setPhone(event.target.value)}
                     className="form-input"
                     autoComplete="tel"
+                    maxLength={20}
                   />
                 </Field>
 
@@ -201,13 +212,13 @@ export default function BecomeTutor() {
                     <label key={index} className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm text-slate-600 hover:border-edu-purple">
                       <FileBadge className="h-5 w-5 shrink-0 text-edu-purple" />
                       <span className="min-w-0 flex-1 truncate">{certificate ? `Certificate ${index + 1} attached` : `Choose certificate ${index + 1}`}</span>
-                      <input type="file" accept="application/pdf,image/png,image/jpeg" className="sr-only" onChange={(event) => {
+                      <input disabled={isSubmitting} type="file" accept="application/pdf,image/png,image/jpeg" className="sr-only" onChange={(event) => {
                         const file = event.target.files?.[0];
                         if (!file) return;
                         if (file.size > 5 * 1024 * 1024) { setError("Each certificate must be 5 MB or smaller."); return; }
-                        const reader = new FileReader();
-                        reader.onload = () => setCertificates((current) => current.map((value, itemIndex) => itemIndex === index ? String(reader.result) : value));
-                        reader.readAsDataURL(file);
+                        if(!['image/jpeg','image/png','application/pdf'].includes(file.type) || !file.size) {setError('Choose a nonempty JPEG, PNG, or PDF.');return;}
+                        uploaded.current[index]=null;
+                        setCertificates(current=>current.map((value,i)=>i===index?file:value));
                       }} />
                     </label>
                   ))}

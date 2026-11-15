@@ -197,6 +197,7 @@ export const getEnrollments: RequestHandler = async (req, res) => {
     let queryStr = `SELECT
       e.*,
       ${courseProgressSql("e.student_id", "e.course_id")} AS progress_percentage,
+      (${courseProgressSql("e.student_id", "e.course_id")} = 100) AS is_completed,
       c.title AS course_title,
       c.description AS course_description,
       c.category AS course_category,

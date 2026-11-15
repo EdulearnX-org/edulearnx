@@ -4,7 +4,7 @@ publish = "dist/spa"
 functions = "netlify/functions"
 
 [build.environment]
-NODE_VERSION = "22"
+NODE_VERSION = "22.12.0"
 
 [functions]
 node_bundler = "esbuild"

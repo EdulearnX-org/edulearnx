@@ -1,6 +1,6 @@
 # Course Management API Endpoints
 
-All endpoints are prefixed with `/api` and return JSON responses.
+All endpoints are prefixed with `/api` and return JSON responses. JSON requests are limited to 1 MB; malformed JSON returns 400 and oversized requests return 413. Resource IDs accept positive integer IDs or UUIDs where supported by the existing schema.
 
 ## Authentication
 
@@ -225,10 +225,10 @@ DELETE /lessons/:id
 ## Existing Endpoints
 
 ### Courses
-- `GET /courses` - Get all courses
-- `GET /courses/:id` - Get course by ID
-- `POST /courses` - Create course
-- `PUT /courses/:id` - Update course
+- `GET /courses` - Public published catalog; authenticated portal users also receive drafts they are authorized to access
+- `GET /courses/:id` - Get a visible course by ID; inaccessible drafts return 404
+- `POST /courses` - Create course; `price_cents` is required and must be a non-negative integer
+- `PUT /courses/:id` - Patch supplied fields, including `price_cents`; omitted values stay unchanged, nullable optional fields accept explicit `null`, and dates are validated against the resulting record
 - `DELETE /courses/:id` - Delete course
 
 ### Enrollments
@@ -246,7 +246,7 @@ DELETE /lessons/:id
 - `POST /auth/register` - Register new user
 - `POST /auth/login` - Login user
 - `POST /auth/logout` - Logout user
-- `GET /auth/me` - Get current user
+- `GET /auth/session` - Get current user
 
 ---
 
@@ -285,3 +285,28 @@ The system uses PostgreSQL (Neon) with the following main tables:
 - `enrollments` - Student enrollments
 - `lesson_progress` - Per-lesson progress tracking
 - `enrollment_requests` - Pending enrollment approvals
+
+## Uploads and enrollment applications
+
+- `POST /uploads`: `{ purpose: "receipt" | "certificate", content_type, byte_size }`. Returns `data: { upload_id, upload_token, upload_url }`. Upload the raw file bytes with `PUT upload_url` and the matching `Content-Type`; do not base64-encode file contents into application JSON. Files are 1 byte to 5 MB. Receipts accept JPEG, PNG, WebP, or PDF and require an authenticated student. Certificates accept JPEG, PNG, or PDF. Tokens are single-use when submitting an application; abandoned uploads expire and are cleaned by maintenance.
+- `POST /enrollment-requests`: authenticated student submits `{ course_id, student_phone, sender_account_title, sender_account_number, transfer_reference?, receipt: { upload_id, upload_token } }`. The course must be published. Submission creates a pending manual approval application; it does not confirm payment or enrollment.
+- `GET /enrollment-requests/:id/status`: authenticated student can read only their own application's verified status.
+- `GET /enrollment-requests?page=1&limit=25`: authorized `enrollmentRequests` administrator queue; `limit` is at most 100.
+- `GET /enrollment-requests/:id/receipt`: authorized administrator obtains a signed receipt URL valid for 120 seconds.
+- `PATCH /enrollment-requests/:id`: authorized administrator reviews the application with `{ status: "approved" | "rejected" }`.
+- `GET /tutor-applications?page=1&limit=25`: authorized `tutorApplications` administrator queue. Certificate contents are omitted from list responses.
+- `GET /tutor-applications/:id/certificates/:slot`: authorized administrator obtains a signed certificate URL; `slot` is 1, 2, or 3.
+
+## Atomic class scheduling
+
+`POST /live-classes/batch` accepts `{ request_id, course_id, teacher_id?, title, description?, sessions }`, where `request_id` is a UUID and `sessions` contains exactly five `{ scheduled_start, scheduled_end }` records. Dates must include an offset or `Z`. The server validates teacher assignment and every date window, then saves all classes in one transaction. Retrying the same request ID with the same payload returns its original classes; reusing the ID with different details returns 409. Generate a new request ID only for a new schedule.
+
+`GET /live-classes?teacher_id=...` applies the teacher filter within the caller's existing authorization. Administrators can filter teachers; teachers and students retain their existing visibility restrictions. Starting a class persists completion of expired classes and closes their attendance before enforcing the one-active-class constraint.
+
+## Readiness and maintenance
+
+- `GET /health` and `GET /health-db`: return 503 until required database columns and migration `20261031_audit_repairs` are present.
+- `GET /internal/maintenance`: requires the configured `CRON_SECRET` as a bearer token and processes durable cleanup queues. Schedule this independently of visitor traffic.
+- `/keep-alive` has been removed; visitors no longer warm the database periodically.
+
+Bundle and promo-code management endpoints do not redeem discounts at checkout. Revenue reporting and a lesson-player interface remain unimplemented capabilities.

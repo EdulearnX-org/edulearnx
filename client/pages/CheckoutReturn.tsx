@@ -1,80 +1,29 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import Navbar from "@/components/Navbar";
+import { Link, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { usePortalAuth } from '@/lib/portalData';
+import { readApiResponse } from '@/lib/api';
+import Navbar from '@/components/Navbar';
 
-const CheckoutReturn = () => {
-  const [message, setMessage] = useState("Processing your payment...");
-  const [error, setError] = useState(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    // Check URL parameters for payment status
-    const urlParams = new URLSearchParams(window.location.search);
-    const userId = urlParams.get('user_id');
-    const productId = urlParams.get('product_id');
-    
-    if (userId && productId) {
-      // Process successful payment
-      setMessage("Payment successful! You're being redirected...");
-      
-      // Simulate redirect to success page after a short delay
-      setTimeout(() => {
-        navigate('/payment-success');
-      }, 2000);
-    } else {
-      // Handle case where parameters are missing
-      setMessage("Verifying your payment status...");
-      setError(true);
-      
-      // Redirect to courses after delay
-      setTimeout(() => {
-        navigate('/courses');
-      }, 3000);
-    }
-  }, [navigate]);
-
-  return (
-    <div className="min-h-screen bg-gray-50 py-12">
-      <Navbar />
-      <div className="container mx-auto px-4 max-w-2xl">
-        <Card className="shadow-lg">
-          <CardHeader className="text-center">
-            <CardTitle className="text-2xl">
-              {error ? "Verification Issue" : "Payment Processing"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-center">
-            <div className="flex justify-center my-4">
-              {!error ? (
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-              ) : (
-                <div className="bg-yellow-100 rounded-full p-3 w-12 h-12 flex items-center justify-center">
-                  <svg
-                    xmlns="http://www.w3.org/2000/svg"
-                    className="h-6 w-6 text-yellow-600"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
-                    />
-                  </svg>
-                </div>
-              )}
-            </div>
-            <p className="text-gray-600">
-              {message}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-};
-
-export default CheckoutReturn;
+type Application={id:string;status:'pending'|'approved'|'rejected';submission_state:string;course_title:string};
+export default function CheckoutReturn() {
+  const [params]=useSearchParams();const id=params.get('application_id');
+  const {user,isLoading:authLoading}=usePortalAuth();
+  const validId=Boolean(id && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id));
+  const status=useQuery({queryKey:['application-status',user?.id,id],enabled:!!user && validId, retry:false,queryFn:async()=>{
+    const response=await fetch(`/api/enrollment-requests/${encodeURIComponent(id!)}/status`,{signal:AbortSignal.timeout(30_000),cache:'no-store'});
+    const payload=await readApiResponse(response);if(!response.ok || !payload.success) throw new Error(payload.error||'Unable to verify application status.');
+    return payload.data as Application;
+  }});
+  let title='Application status',message='No application reference was provided. Payment and enrollment have not been verified.';
+  if(authLoading) message='Restoring your session…';
+  else if(validId && !user) message='Sign in to view your enrollment application.';
+  else if(validId && status.isFetching) message='Checking your application…';
+  else if(status.error) message=status.error.message;
+  else if(status.data) {
+    if(status.data.submission_state!=='complete') message='Your submission is incomplete. Return to checkout and submit your payment proof.';
+    else if(status.data.status==='approved') {title='Enrollment approved';message=`Your application for ${status.data.course_title} has been approved. Open your student portal to access classes.`;}
+    else if(status.data.status==='rejected') {title='Application rejected';message=`Your application for ${status.data.course_title} was rejected. Contact support if you need help.`;}
+    else {title='Awaiting review';message=`Your payment proof for ${status.data.course_title} is awaiting admin review. Enrollment is granted after approval.`;}
+  }
+  return <div className="min-h-screen bg-slate-50"><Navbar/><main className="mx-auto max-w-2xl px-6 pb-16 pt-36"><div className="rounded-2xl border bg-white p-8 shadow-sm"><h1 className="text-2xl font-bold text-slate-900">{title}</h1><p role="status" className="my-6 text-slate-600">{message}</p><div className="flex flex-wrap gap-4"><Link className="font-semibold text-edu-purple" to={user?`/${user.role}`:'/signin'}>{user?'Open portal':'Sign in'}</Link><Link className="font-semibold text-edu-purple" to="/courses">Browse courses</Link>{status.data && <button type="button" disabled={status.isFetching} onClick={()=>void status.refetch()} className="font-semibold text-edu-purple">Refresh status</button>}</div></div></main></div>;
+}

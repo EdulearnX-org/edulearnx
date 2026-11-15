@@ -307,6 +307,9 @@ export const startLiveClass: RequestHandler = async (req, res) => {
     const started = await transaction(async client => {
       await client.query("SELECT id FROM courses WHERE id=$1 FOR UPDATE",[row.course_id]);
       await closeExpired(client,row.course_id);
+      const current=(await client.query(`${liveClassSelect} WHERE lc.id=$1 FOR UPDATE OF lc`,[req.params.id])).rows[0];
+      if(!current || String(current.course_id)!==String(row.course_id) || !canManageClass(actor,current)) throw new HttpError(409,"Class assignment changed. Reload before starting.");
+      if(Date.now()<new Date(current.scheduled_start).getTime()-joinWindowMinutes*60_000 || Date.now()>new Date(current.scheduled_end).getTime()) throw new HttpError(409,"This class is outside its scheduled start window");
       return client.query(
       `UPDATE live_classes
        SET status = 'active', started_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
@@ -323,8 +326,7 @@ export const startLiveClass: RequestHandler = async (req, res) => {
     if (error?.code === "23505") {
       return res.status(409).json({ success: false, error: "Another class for this course is already active" });
     }
-    console.error("Error starting live class:", error);
-    res.status(500).json({ success: false, error: "Unable to start live class" });
+    respondError(res,error,"Unable to start live class");
   }
 };
 
@@ -350,20 +352,13 @@ export const endLiveClass: RequestHandler = async (req, res) => {
       return res.status(409).json({ success: false, error: "Only an active class can be ended" });
     }
 
-    await query(
-      `UPDATE live_class_attendance
-       SET left_at = CURRENT_TIMESTAMP,
-           duration_seconds = GREATEST(0, EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - joined_at))::int)
-       WHERE live_class_id = $1 AND left_at IS NULL`,
-      [req.params.id],
-    );
-    const ended = await query(
-      `UPDATE live_classes
-       SET status = 'completed', ended_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $1 AND status = 'active'
-       RETURNING *`,
-      [req.params.id],
-    );
+    const ended=await transaction(async client=>{
+      await client.query("SELECT id FROM courses WHERE id=$1 FOR UPDATE",[row.course_id]);
+      const current=(await client.query(`${liveClassSelect} WHERE lc.id=$1 FOR UPDATE OF lc`,[req.params.id])).rows[0];
+      if(!current || !canManageClass(actor,current)) throw new HttpError(409,"Class assignment changed. Reload before ending.");
+      await client.query(`UPDATE live_class_attendance SET left_at=LEAST(CURRENT_TIMESTAMP,$2::timestamp),duration_seconds=GREATEST(0,EXTRACT(EPOCH FROM(LEAST(CURRENT_TIMESTAMP,$2::timestamp)-joined_at))::int) WHERE live_class_id=$1 AND left_at IS NULL`,[req.params.id,current.scheduled_end]);
+      return client.query(`UPDATE live_classes SET status='completed',ended_at=LEAST(CURRENT_TIMESTAMP,scheduled_end),updated_at=CURRENT_TIMESTAMP WHERE id=$1 AND status='active' RETURNING *`,[req.params.id]);
+    });
     res.json({ success: true, data: ended.rows[0] });
   } catch (error) {
     console.error("Error ending live class:", error);

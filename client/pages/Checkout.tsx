@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { uploadPrivateFile, type UploadReference } from "@/lib/uploads";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { readApiResponse } from "@/lib/api";
@@ -23,18 +24,20 @@ export default function Checkout() {
   const [studentPhone, setStudentPhone] = useState(user?.phone ?? "");
   const [senderAccountTitle, setSenderAccountTitle] = useState("");
   const [senderAccountNumber, setSenderAccountNumber] = useState("");
-  const [receipt, setReceipt] = useState("");
+  const [receipt, setReceipt] = useState<File | null>(null);
+  const uploadedReceipt = useRef<UploadReference | null>(null);
+  const submitting = useRef(false);
+  const [applicationId,setApplicationId]=useState("");
   const [receiptName, setReceiptName] = useState("");
   const [receiptSize, setReceiptSize] = useState<number | null>(null);
-  const [isReadingReceipt, setIsReadingReceipt] = useState(false);
-  const receiptReader = useRef<FileReader | null>(null);
+  const isReadingReceipt=false;
   const [uploadProgress, setUploadProgress] = useState<{ loaded: number; total: number } | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const { data: course, isLoading, error: courseError } = useQuery({
-    queryKey: ["course", courseId],
+    queryKey: ["course", courseId, user?.id],
     queryFn: async () => {
       const response = await fetch(`/api/courses/${courseId}`);
       const payload = await readApiResponse(response);
@@ -57,109 +60,38 @@ export default function Checkout() {
     retry: false,
   });
 
-  useEffect(() => () => {
-    receiptReader.current?.abort();
-  }, []);
-
   const readReceipt = (event: ChangeEvent<HTMLInputElement>) => {
-    receiptReader.current?.abort();
-    receiptReader.current = null;
-    setIsReadingReceipt(false);
-    setReceipt("");
-    setReceiptName("");
-    setReceiptSize(null);
-    setUploadProgress(null);
-    setError("");
-    const file = event.target.files?.[0];
-    if (!file) return;
-    if (!allowedReceiptTypes.has(file.type)) { setError("Receipt must be a JPEG, PNG, WebP, or PDF file."); return; }
-    if (!file.size) { setError("This receipt is empty. Please choose another file."); return; }
-    if (file.size > maxReceiptSize) { setError("Receipts must be smaller than 5 MB."); return; }
-    setReceiptName(file.name);
-    setReceiptSize(file.size);
-    setIsReadingReceipt(true);
-    const reader = new FileReader();
-    receiptReader.current = reader;
-    reader.onload = () => {
-      if (receiptReader.current !== reader) return;
-      setReceipt(String(reader.result || ""));
-      setIsReadingReceipt(false);
-    };
-    reader.onerror = () => {
-      if (receiptReader.current !== reader) return;
-      setReceiptName("");
-      setReceiptSize(null);
-      setIsReadingReceipt(false);
-      setError("Unable to read the selected receipt file. Please try again.");
-    };
-    reader.readAsDataURL(file);
+    setReceipt(null);uploadedReceipt.current=null;setReceiptName("");setReceiptSize(null);setError("");
+    const file=event.target.files?.[0];
+    if(!file) return;
+    if(!allowedReceiptTypes.has(file.type) || !file.size || file.size>maxReceiptSize) {setError("Choose a JPEG, PNG, WebP, or PDF file between 1 byte and 5 MB.");return;}
+    setReceipt(file);setReceiptName(file.name);setReceiptSize(file.size);
   };
 
   const submitRequest = async (event: FormEvent) => {
     event.preventDefault(); setError(""); setMessage("");
-    if (isSubmitting || message || isReadingReceipt) return;
+    if (submitting.current || message) return;
     if (!user || user.role !== "student") { setError("Please sign in with a student account before submitting payment proof."); return; }
     if (!receipt || !studentPhone.trim() || !senderAccountTitle.trim() || !senderAccountNumber.trim()) {
       setError("Enter your phone number, sender account title and number, and upload your receipt.");
       return;
     }
+    submitting.current=true;
     setIsSubmitting(true);
     setUploadProgress({ loaded: 0, total: 0 });
     try {
-      const body = JSON.stringify({
-        course_id: course?.id,
-        student_phone: studentPhone.trim(),
-        sender_account_title: senderAccountTitle.trim(),
-        sender_account_number: senderAccountNumber.trim(),
-        receipt_data_url: receipt,
-      });
-      const requestSize = new TextEncoder().encode(body).length;
-      await new Promise<void>((resolve, reject) => {
-        const request = new XMLHttpRequest();
-        request.open("POST", "/api/enrollment-requests");
-        request.timeout = 120_000;
-        request.setRequestHeader("Content-Type", "application/json");
-        request.upload.addEventListener("progress", (event) => {
-          setUploadProgress({
-            loaded: event.loaded,
-            total: event.lengthComputable ? event.total : 0,
-          });
-        });
-        request.addEventListener("error", () => reject(new Error("Unable to upload payment proof. Please check your connection and try again.")));
-        request.addEventListener("timeout", () => reject(new Error("The upload took too long. Please check your connection and try again.")));
-        request.addEventListener("load", () => {
-          let payload: unknown;
-          try {
-            payload = JSON.parse(request.responseText);
-          } catch {
-            reject(new Error("The server returned an invalid response while submitting payment proof."));
-            return;
-          }
-          if (
-            !request.status.toString().startsWith("2") ||
-            typeof payload !== "object" ||
-            payload === null ||
-            !("success" in payload) ||
-            payload.success !== true
-          ) {
-            const error = typeof payload === "object" && payload !== null && "error" in payload && typeof payload.error === "string"
-              ? payload.error
-              : "Unable to submit payment proof.";
-            reject(new Error(error));
-            return;
-          }
-          setUploadProgress({ loaded: requestSize, total: requestSize });
-          resolve();
-        });
-        request.send(body);
-      });
+      uploadedReceipt.current ||= await uploadPrivateFile(receipt,'receipt',setUploadProgress);
+      const response=await fetch('/api/enrollment-requests',{method:'POST',signal:AbortSignal.timeout(60_000),headers:{'Content-Type':'application/json'},body:JSON.stringify({course_id:course?.id,student_phone:studentPhone.trim(),sender_account_title:senderAccountTitle.trim(),sender_account_number:senderAccountNumber.trim(),receipt:uploadedReceipt.current})});
+      const payload=await readApiResponse(response);
+      if(!response.ok || !payload.success) throw new Error(payload.error||'Unable to submit payment proof.');
+      setApplicationId(payload.data.id);
       setMessage("Payment proof submitted. An admin will review it before enrollment is granted.");
       window.dispatchEvent(new Event("edulearnx-data-change"));
     } catch (submissionError) {
       setUploadProgress(null);
       setError(submissionError instanceof Error ? submissionError.message : "Unable to submit payment proof.");
     }
-    finally { setIsSubmitting(false); }
+    finally { submitting.current=false;setIsSubmitting(false); }
   };
 
   if (isLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-950 text-white">Loading course...</div>;
@@ -187,14 +119,14 @@ export default function Checkout() {
         ) : user.role !== "student" ? <p role="status" className="mt-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Use a student account to submit payment proof.</p> : null}
         <form onSubmit={submitRequest} aria-busy={isSubmitting} className="mt-6 space-y-4">
           <fieldset disabled={isSubmitting || Boolean(message) || user?.role !== "student"} className="min-w-0 space-y-4">
-          <label className="block text-sm font-semibold">Your phone number<input required type="tel" autoComplete="tel" maxLength={64} value={studentPhone} onChange={(event) => setStudentPhone(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Phone number for your enrollment application" /></label>
+          <label className="block text-sm font-semibold">Your phone number<input required type="tel" autoComplete="tel" maxLength={20} value={studentPhone} onChange={(event) => setStudentPhone(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Phone number for your enrollment application" /></label>
           <label className="block text-sm font-semibold">Your account title<input required maxLength={255} value={senderAccountTitle} onChange={(event) => setSenderAccountTitle(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Name registered to the sending account" /></label>
           <label className="block text-sm font-semibold">Your account number<input required maxLength={255} value={senderAccountNumber} onChange={(event) => setSenderAccountNumber(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Account used to make the transfer" /></label>
           <label className="block text-sm font-semibold">Payment receipt<input required type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={readReceipt} className="mt-2 block w-full rounded-lg border border-dashed border-slate-300 px-3 py-3 text-sm font-normal" /><span className="mt-2 flex items-center gap-2 text-xs font-normal text-slate-500"><Upload className="h-4 w-4" />{receiptName || "JPEG, PNG, WebP, or PDF up to 5 MB"}</span>{receiptSize !== null && <span className="mt-1 block text-xs font-normal text-slate-500">Selected file size: {formatFileSize(receiptSize)}</span>}</label>
           {uploadProgress && <div aria-live="polite" className="space-y-2"><div className="flex justify-between text-xs font-medium text-slate-600"><span>{isSubmitting ? "Uploading receipt and payment details" : "Upload complete"}</span><span>{uploadProgress.total ? `${Math.round((uploadProgress.loaded / uploadProgress.total) * 100)}%` : "Preparing upload..."}</span></div><progress aria-label="Payment proof upload progress" max={uploadProgress.total || 1} value={uploadProgress.total ? Math.min(uploadProgress.loaded, uploadProgress.total) : undefined} className="h-2 w-full accent-slate-950" />{uploadProgress.total > 0 && <p className="text-right text-xs text-slate-500">{formatFileSize(Math.min(uploadProgress.loaded, uploadProgress.total))} of {formatFileSize(uploadProgress.total)} sent</p>}</div>}
           {isReadingReceipt && <p role="status" className="text-sm text-slate-600">Reading receipt...</p>}
           {error && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
-          {message && <p role="status" className="flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{message}</p>}
+          {applicationId && <Link className="block text-cyan-300 underline" to={`/payment-success?application_id=${encodeURIComponent(applicationId)}`}>View application status</Link>}{message && <p role="status" className="flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{message}</p>}
           <button disabled={isSubmitting || Boolean(message) || isReadingReceipt || !receipt || settingsLoading || Boolean(settingsError) || !user || user.role !== "student"} className="w-full rounded-lg bg-slate-950 px-5 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isSubmitting ? "Submitting proof..." : "Submit payment proof"}</button>
           </fieldset>
         </form>

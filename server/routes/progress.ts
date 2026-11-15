@@ -1,3 +1,6 @@
+import { idSchema } from "../../shared/validation.js";
+import { courseProgressSql } from "../utils/courseProgress.js";
+import { respondError } from "../utils/errors.js";
 import { RequestHandler } from "express";
 import { query } from "../db/connection.js";
 import { canAccessCourse, canAccessStudentData } from "../utils/studentDataAccess.js";
@@ -7,7 +10,7 @@ export const getStudentProgress: RequestHandler = async (req, res) => {
   try {
     const { student_id } = req.params;
     const { course_id } = req.query;
-    if (typeof student_id !== "string") {
+    if (typeof student_id !== "string" || !idSchema.safeParse(student_id).success) {
       return res.status(400).json({ success: false, error: "Invalid student id" });
     }
     const actor = req.user;
@@ -65,7 +68,7 @@ export const getStudentProgress: RequestHandler = async (req, res) => {
 export const updateLessonProgress: RequestHandler = async (req, res) => {
   try {
     const { student_id, lesson_id } = req.params;
-    if (typeof student_id !== "string" || typeof lesson_id !== "string") {
+    if (typeof student_id !== "string" || typeof lesson_id !== "string" || !idSchema.safeParse(student_id).success || !idSchema.safeParse(lesson_id).success) {
       return res.status(400).json({ success: false, error: "Invalid progress target" });
     }
     const { is_completed, progress_percentage, last_watched_at } = req.body;
@@ -147,7 +150,7 @@ export const updateLessonProgress: RequestHandler = async (req, res) => {
 export const getCourseProgress: RequestHandler = async (req, res) => {
   try {
     const { student_id, course_id } = req.params;
-    if (typeof student_id !== "string" || typeof course_id !== "string") {
+    if (typeof student_id !== "string" || typeof course_id !== "string" || !idSchema.safeParse(student_id).success || !idSchema.safeParse(course_id).success) {
       return res.status(400).json({ success: false, error: "Invalid progress target" });
     }
     if (
@@ -164,15 +167,9 @@ export const getCourseProgress: RequestHandler = async (req, res) => {
         c.title AS course_title,
         COUNT(DISTINCT cl.id) AS total_lessons,
         COUNT(DISTINCT CASE WHEN lp.is_completed = true THEN cl.id END) AS completed_lessons,
-        ROUND(
-          CASE 
-            WHEN COUNT(DISTINCT cl.id) = 0 THEN 0
-            ELSE (COUNT(DISTINCT CASE WHEN lp.is_completed = true THEN cl.id END)::numeric / COUNT(DISTINCT cl.id)::numeric) * 100
-          END,
-          2
-        ) AS progress_percentage,
+        ${courseProgressSql("$1", "c.id")} AS progress_percentage,
         e.enrolled_at,
-        e.is_completed AS course_completed,
+        (${courseProgressSql("$1", "c.id")} = 100) AS course_completed,
         e.completed_at
       FROM courses c
       LEFT JOIN course_modules cm ON cm.course_id = c.id
@@ -210,7 +207,7 @@ export const getCourseProgress: RequestHandler = async (req, res) => {
 export const completeCourse: RequestHandler = async (req, res) => {
   try {
     const { student_id, course_id } = req.params;
-    if (typeof student_id !== "string" || typeof course_id !== "string") {
+    if (typeof student_id !== "string" || typeof course_id !== "string" || !idSchema.safeParse(student_id).success || !idSchema.safeParse(course_id).success) {
       return res.status(400).json({ success: false, error: "Invalid progress target" });
     }
     if (
@@ -269,7 +266,7 @@ export const completeCourse: RequestHandler = async (req, res) => {
 export const getCourseStructure: RequestHandler = async (req, res) => {
   try {
     const { course_id } = req.params;
-    if (typeof course_id !== "string") {
+    if (typeof course_id !== "string" || !idSchema.safeParse(course_id).success) {
       return res.status(400).json({ success: false, error: "Invalid course id" });
     }
     const actor = req.user;

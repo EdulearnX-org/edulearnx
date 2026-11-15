@@ -1,7 +1,41 @@
 import { transaction } from "../utils/transaction.js";
 import { isDatabaseConfigured } from "./connection.js";
 
-export const repairSchemaSql = "ALTER TABLE courses ADD COLUMN IF NOT EXISTS zoom_link TEXT;\nCREATE TABLE IF NOT EXISTS class_schedule_batches (\n  actor_id TEXT NOT NULL,\n  request_id UUID NOT NULL,\n  request_hash CHAR(64) NOT NULL,\n  class_ids JSONB NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  PRIMARY KEY(actor_id,request_id)\n);\nCREATE TABLE IF NOT EXISTS upload_intents (\n  id UUID PRIMARY KEY,\n  token_hash CHAR(64) NOT NULL,\n  owner_id TEXT,\n  purpose TEXT NOT NULL CHECK(purpose IN ('receipt','certificate')),\n  bucket TEXT NOT NULL,\n  object_path TEXT NOT NULL UNIQUE,\n  content_type TEXT NOT NULL,\n  byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 1 AND 5242880),\n  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','claimed','deleting')),\n  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n  expires_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP + INTERVAL '2 hours 10 minutes'\n);\nCREATE INDEX IF NOT EXISTS upload_intents_cleanup_idx ON upload_intents(expires_at) WHERE status <> 'claimed';\nCREATE TABLE IF NOT EXISTS request_limits (\n  key_hash CHAR(64) PRIMARY KEY,\n  attempts INTEGER NOT NULL,\n  expires_at TIMESTAMPTZ NOT NULL\n);\nCREATE INDEX IF NOT EXISTS request_limits_expiry_idx ON request_limits(expires_at);\nCREATE TABLE IF NOT EXISTS app_migrations (\n  version TEXT PRIMARY KEY,\n  applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n);\nINSERT INTO app_migrations(version) VALUES('20261031_audit_repairs') ON CONFLICT DO NOTHING;\n";
+export const repairSchemaSql = `ALTER TABLE courses ADD COLUMN IF NOT EXISTS zoom_link TEXT;
+CREATE TABLE IF NOT EXISTS class_schedule_batches (
+  actor_id TEXT NOT NULL,
+  request_id UUID NOT NULL,
+  request_hash CHAR(64) NOT NULL,
+  class_ids JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY(actor_id,request_id)
+);
+CREATE TABLE IF NOT EXISTS upload_intents (
+  id UUID PRIMARY KEY,
+  token_hash CHAR(64) NOT NULL,
+  owner_id TEXT,
+  purpose TEXT NOT NULL CHECK(purpose IN ('receipt','certificate')),
+  bucket TEXT NOT NULL,
+  object_path TEXT NOT NULL UNIQUE,
+  content_type TEXT NOT NULL,
+  byte_size INTEGER NOT NULL CHECK(byte_size BETWEEN 1 AND 5242880),
+  status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','claimed','deleting')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP + INTERVAL '2 hours 10 minutes'
+);
+CREATE INDEX IF NOT EXISTS upload_intents_cleanup_idx ON upload_intents(expires_at) WHERE status <> 'claimed';
+CREATE TABLE IF NOT EXISTS request_limits (
+  key_hash CHAR(64) PRIMARY KEY,
+  attempts INTEGER NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL
+);
+CREATE INDEX IF NOT EXISTS request_limits_expiry_idx ON request_limits(expires_at);
+CREATE TABLE IF NOT EXISTS app_migrations (
+  version TEXT PRIMARY KEY,
+  applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+INSERT INTO app_migrations(version) VALUES('20261031_audit_repairs') ON CONFLICT DO NOTHING;
+`;
 
 export async function initializeRepairSchema() {
   if (isDatabaseConfigured) await transaction(client => client.query(repairSchemaSql));

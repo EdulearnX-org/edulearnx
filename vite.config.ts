@@ -7,6 +7,8 @@ const projectRoot = import.meta.dirname;
 export default defineConfig({
   build: {
     outDir: "dist/spa",
+    // Preserve dynamic-import boundaries so the Zoom SDK loads only on joining a classroom.
+    // A catch-all node_modules group would pull it into the homepage dependency graph.
   },
   plugins: [
     react(),

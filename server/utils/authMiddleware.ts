@@ -50,9 +50,15 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   }
 }
 
-export function optionalAuth(req: Request, res: Response, next: NextFunction) {
-  if (!readSessionToken(req)) return next();
-  return requireAuth(req, res, next);
+export async function optionalAuth(req: Request, res: Response, next: NextFunction) {
+  const token=readSessionToken(req);
+  if(!token) return next();
+  try {
+    const result=await query(`SELECT u.id,u.email,u.role FROM auth_sessions s JOIN users u ON u.id::text=s.user_id WHERE s.token_hash=$1 AND s.expires_at>CURRENT_TIMESTAMP AND u.is_active IS DISTINCT FROM FALSE`,[hashAuthToken(token)]);
+    const user=result.rows[0];
+    if(user) req.user={userId:user.id,email:user.email,role:user.role};
+    return next();
+  }catch {return sendError(res,"Unable to verify account",503);}
 }
 
 export function requireRole(...roles: string[]) {

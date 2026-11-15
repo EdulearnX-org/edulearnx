@@ -1,12 +1,15 @@
 // Load .env BEFORE any database/route imports (ES module evaluation order)
 import "./env.js";
-import express from "express";
+import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
 import { handleDemo } from "./routes/demo.js";
 import { initializeDatabase } from "./db/schema.js";
 import { isDatabaseConfigured, query } from "./db/connection.js";
 import { initializeAuthSchema } from "./db/authSchema.js";
 import { initializeContactSchema } from "./db/contactSchema.js";
+import { initializeRepairSchema } from "./db/repairSchema.js";
+import { maintenanceHandler } from "./utils/maintenance.js";
+import { createUploadIntent } from "./routes/uploads.js";
 import { submitContactMessage } from "./routes/contact.js";
 import * as authRoutes from "./routes/auth.js";
 import * as userRoutes from "./routes/users.js";
@@ -36,7 +39,6 @@ const shouldInitializeDatabase =
   (process.env.NODE_ENV !== "production" ||
     process.env.INITIALIZE_DATABASE_ON_STARTUP === "true");
 let initializationPromise: Promise<void> | undefined;
-let enrollmentCleanupTimer: NodeJS.Timeout | undefined;
 
 type JsonResponse = {
   status(code: number): {
@@ -58,6 +60,7 @@ export function initializeServer() {
         await initializeDatabase();
         await initializeAuthSchema();
         await initializeContactSchema();
+        await initializeRepairSchema();
       }
       if (
         process.env.NODE_ENV === "production" &&
@@ -70,16 +73,35 @@ export function initializeServer() {
   return initializationPromise;
 }
 
-async function hasRequiredSchema() {
+// Keep this list in sync with schema changes used by authentication and the core flows.
+export const requiredSchemaColumns: Record<string, readonly string[]> = {
+  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions"],
+  courses: ["id", "instructor_id", "price_cents", "is_published", "meeting_id", "zoom_link"],
+  enrollments: ["student_id", "course_id", "progress_percentage", "is_completed"],
+  auth_sessions: ["token_hash", "user_id", "expires_at"],
+  password_reset_tokens: ["token_hash", "user_id", "created_by", "expires_at"],
+  contact_messages: ["id", "name", "email", "subject", "message"],
+  live_classes: ["id", "course_id", "teacher_id", "status", "scheduled_start", "scheduled_end", "ended_at"],
+  live_class_attendance: ["live_class_id", "user_id", "joined_at", "left_at", "duration_seconds"],
+  tutor_applications: ["id", "email", "password_hash", "status", "certificate_1", "certificate_2", "certificate_3"],
+  class_schedule_batches: ["actor_id", "request_id", "request_hash", "class_ids"],
+  upload_intents: ["id", "token_hash", "owner_id", "purpose", "bucket", "object_path", "content_type", "byte_size", "status", "expires_at"],
+  request_limits: ["key_hash", "attempts", "expires_at"],
+  app_migrations: ["version"],
+};
+
+export async function hasRequiredSchema() {
   const result = await query(
-    `SELECT to_regclass('public.users') AS users_table,
-            to_regclass('public.courses') AS courses_table,
-            to_regclass('public.auth_sessions') AS sessions_table,
-            to_regclass('public.password_reset_tokens') AS reset_tokens_table,
-            to_regclass('public.contact_messages') AS contact_messages_table`,
+    `SELECT table_name, column_name FROM information_schema.columns
+     WHERE table_schema = 'public' AND table_name = ANY($1::text[])`,
+    [Object.keys(requiredSchemaColumns)],
   );
-  const tables = result.rows[0];
-  return Boolean(tables?.users_table && tables?.courses_table && tables?.sessions_table && tables?.reset_tokens_table && tables?.contact_messages_table);
+  const columns = new Set(result.rows.map(row => `${row.table_name}.${row.column_name}`));
+  for (const [table, requiredColumns] of Object.entries(requiredSchemaColumns)) {
+    if (requiredColumns.some(column => !columns.has(`${table}.${column}`))) return false;
+  }
+  const migration = await query("SELECT 1 FROM app_migrations WHERE version = $1", ["20261031_audit_repairs"]);
+  return migration.rows.length > 0;
 }
 
 function getCorsOrigin() {
@@ -111,24 +133,6 @@ function getCorsOrigin() {
 }
 
 export function createServer() {
-  const hasSupabaseServerKey = Boolean(
-    process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
-  );
-  const hasSupabaseUrl = Boolean(process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL);
-  if (
-    !enrollmentCleanupTimer &&
-    process.env.NODE_ENV !== "test" &&
-    hasSupabaseServerKey &&
-    hasSupabaseUrl
-  ) {
-    enrollmentCleanupTimer = setInterval(() => {
-      enrollmentRequestRoutes.retryEnrollmentReceiptCleanup().catch((error) => {
-        console.error("Automatic enrollment receipt cleanup retry failed:", error);
-      });
-    }, 60_000);
-    enrollmentCleanupTimer.unref();
-  }
-
   const app = express();
   // Middleware
   app.use(
@@ -137,33 +141,13 @@ export function createServer() {
       credentials: true,
     }),
   );
-  app.use(express.json({ limit: "10mb" }));
+  app.use(express.json({ limit: "1mb" }));
   app.use(express.urlencoded({ extended: true, limit: "32kb", parameterLimit: 100 }));
 
   const apiRouter = express.Router();
 
-  // Keep-alive endpoint to prevent Neon database cold starts
-  apiRouter.get("/keep-alive", async (_req, res) => {
-    try {
-      const start = Date.now();
-      await query("SELECT 1 AS keep_alive");
-      const latency = Date.now() - start;
-      
-      res.json({
-        success: true,
-        message: "Database keep-alive successful",
-        latency_ms: latency,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Keep-alive failed:", error);
-      res.status(500).json({
-        success: false,
-        error: "Database is temporarily unavailable",
-        timestamp: new Date().toISOString(),
-      });
-    }
-  });
+  apiRouter.get("/internal/maintenance", maintenanceHandler);
+  apiRouter.post("/uploads", optionalAuth, createUploadIntent);
 
   apiRouter.get("/ping", (_req, res) => {
     const ping = process.env.PING_MESSAGE ?? "pong";
@@ -215,11 +199,13 @@ export function createServer() {
   apiRouter.delete("/enrollments/:id", requireAuth, requireAdminFeature("enrollmentRequests"), courseRoutes.deleteEnrollment);
   apiRouter.get("/enrollment-requests", requireAuth, requireAdminFeature("enrollmentRequests"), enrollmentRequestRoutes.getEnrollmentRequests);
   apiRouter.post("/enrollment-requests", requireAuth, enrollmentRequestRoutes.createEnrollmentRequest);
+  apiRouter.get("/enrollment-requests/:id/status", requireAuth, enrollmentRequestRoutes.getMyEnrollmentStatus);
   apiRouter.get("/enrollment-requests/:id/receipt", requireAuth, requireAdminFeature("enrollmentRequests"), enrollmentRequestRoutes.getEnrollmentReceiptUrl);
   apiRouter.post("/enrollment-requests/:id/retry-cleanup", requireAuth, requireAdminFeature("enrollmentRequests"), enrollmentRequestRoutes.retryEnrollmentRequestCleanup);
   apiRouter.patch("/enrollment-requests/:id", requireAuth, requireAdminFeature("enrollmentRequests"), enrollmentRequestRoutes.reviewEnrollmentRequest);
   apiRouter.get("/tutor-applications", requireAuth, requireAdminFeature("tutorApplications"), tutorApplicationRoutes.getTutorApplications);
   apiRouter.post("/tutor-applications", tutorApplicationRoutes.createTutorApplication);
+  apiRouter.get("/tutor-applications/:id/certificates/:slot", requireAuth, requireAdminFeature("tutorApplications"), tutorApplicationRoutes.getTutorCertificate);
   apiRouter.patch("/tutor-applications/:id", requireAuth, requireAdminFeature("tutorApplications"), tutorApplicationRoutes.reviewTutorApplication);
 
   // Categories routes
@@ -319,10 +305,19 @@ export function createServer() {
     sendJson(res, 404, { success: false, error: "Route not found" });
   });
 
-  app.use((err: unknown, _req: unknown, res: unknown, _next: unknown) => {
-    console.error("Unexpected server error:", err);
-    sendJson(res, 500, { success: false, error: "Unexpected server error" });
-  });
+  const errorHandler: ErrorRequestHandler = (error: unknown, _req, res, next) => {
+    if (res.headersSent) return next(error);
+    const candidate = error as { status?: number; statusCode?: number } | undefined;
+    const status = candidate?.status ?? candidate?.statusCode;
+    if (typeof status === "number" && status >= 400 && status < 500) {
+      const message = status === 413 ? "Request body is too large" : "Invalid request body";
+      res.status(status).json({ success: false, error: message });
+      return;
+    }
+    console.error("Unexpected server error:", error);
+    res.status(500).json({ success: false, error: "Unexpected server error" });
+  };
+  app.use(errorHandler);
 
   return app;
 }

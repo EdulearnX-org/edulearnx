@@ -1,6 +1,11 @@
 import { RequestHandler } from "express";
 import pool, { query } from "../db/connection.js";
 import type { PoolClient } from "pg";
+import { z } from "zod";
+import { idSchema, pageSchema, phoneSchema } from "../../shared/validation.js";
+import { transaction } from "../utils/transaction.js";
+import { HttpError, respondError } from "../utils/errors.js";
+import { claimUpload, uploadReference } from "./uploads.js";
 
 const bucket = "payment-receipts";
 const signedUrlLifetimeSeconds = 120;
@@ -62,6 +67,7 @@ async function supabaseRequest<T>(
   const { url, key } = supabaseConfig();
   const response = await fetch(`${url}${path}`, {
     ...init,
+    signal: AbortSignal.timeout(20_000),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
@@ -97,6 +103,7 @@ export async function getPendingEnrollmentRequestCount() {
   });
   const response = await fetch(`${url}${tablePath(params.toString())}`, {
     method: "HEAD",
+    signal: AbortSignal.timeout(20_000),
     headers: {
       apikey: key,
       Authorization: `Bearer ${key}`,
@@ -118,30 +125,6 @@ function tablePath(queryString: string) {
 
 function storagePath(path: string) {
   return path.split("/").map(encodeURIComponent).join("/");
-}
-
-async function uploadReceipt(path: string, contentType: string, data: Buffer) {
-  const { url, key } = supabaseConfig();
-  const response = await fetch(
-    `${url}/storage/v1/object/${bucket}/${storagePath(path)}`,
-    {
-      method: "POST",
-      headers: {
-        apikey: key,
-        Authorization: `Bearer ${key}`,
-        "Content-Type": contentType,
-        "x-upsert": "false",
-      },
-      body: new Blob([Uint8Array.from(data)], { type: contentType }),
-    },
-  );
-  if (!response.ok) {
-    const detail = await response.text();
-    throw new SupabaseRequestError(
-      detail || `Supabase Storage returned HTTP ${response.status}`,
-      response.status,
-    );
-  }
 }
 
 async function removeReceipt(path: string) {
@@ -318,10 +301,12 @@ export async function retryEnrollmentReceiptCleanup() {
 
 export const getEnrollmentRequests: RequestHandler = async (req, res) => {
   try {
-    await retryEnrollmentReceiptCleanup();
+    const {page,limit}=pageSchema.parse(req.query);
     const params = new URLSearchParams({
       select: "*",
-      order: "requested_at.desc",
+      order: "requested_at.desc,id.desc",
+      limit: String(limit),
+      offset: String((page-1)*limit),
     });
     if (req.query.status) {
       params.set("status", `eq.${String(req.query.status)}`);
@@ -337,172 +322,54 @@ export const getEnrollmentRequests: RequestHandler = async (req, res) => {
       success: true,
       data: data.map(({ receipt_path: _receiptPath, ...application }) => application),
     });
-  } catch (error) {
-    console.error("Error fetching enrollment applications:", error);
-    res.status(500).json({
-      success: false,
-      error:
-        error instanceof Error && error.message.includes("Supabase server configuration")
-          ? error.message
-          : "Failed to fetch enrollment applications",
-    });
-  }
+  } catch (error) { respondError(res,error,"Failed to fetch enrollment applications"); }
 };
 
-export const createEnrollmentRequest: RequestHandler = async (req, res) => {
-  let applicationId: string | undefined;
+const enrollmentInput=z.object({
+  course_id:idSchema,student_phone:phoneSchema.min(1),
+  sender_account_title:z.string().trim().min(1).max(255),
+  sender_account_number:z.string().trim().min(1).max(255),
+  transfer_reference:z.string().trim().max(255).optional(),receipt:uploadReference,
+}).strict();
+export const createEnrollmentRequest: RequestHandler = async (req,res) => {
   try {
-    const courseId = String(req.body.course_id || "").trim();
-    const studentPhone = String(req.body.student_phone || "").trim();
-    const transferReference = String(req.body.transfer_reference || "").trim();
-    const senderAccountTitle = String(req.body.sender_account_title || "").trim();
-    const senderAccountNumber = String(req.body.sender_account_number || "").trim();
-
-    if (!req.user?.userId || !courseId || !studentPhone || !senderAccountTitle || !senderAccountNumber) {
-      return res.status(400).json({
-        success: false,
-        error: "Course, phone number, sender account title, account number, and receipt are required.",
+    const input=enrollmentInput.parse(req.body);
+    if(req.user?.role!=="student") throw new HttpError(403,"A student account is required.");
+    const studentId=req.user.userId;
+    const result=await transaction(async client=>{
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(studentId),String(input.course_id)]);
+      const student=(await client.query("SELECT id,full_name,email FROM users WHERE id=$1",[studentId])).rows[0];
+      const course=(await client.query("SELECT id,title FROM courses WHERE id=$1 AND is_published=true FOR SHARE",[input.course_id])).rows[0];
+      if(!student || !course) throw new HttpError(404,"Published course not found.");
+      const previous=await supabaseRequest<SupabaseApplication[]>(tablePath(new URLSearchParams({select:"*",id:`eq.${input.receipt.upload_id}`,student_id:`eq.${studentId}`,limit:"1"}).toString()));
+      if(previous[0]?.submission_state==='complete') return {id:previous[0].id,status:previous[0].status};
+      if((await client.query("SELECT id FROM enrollments WHERE student_id=$1 AND course_id=$2",[studentId,input.course_id])).rows.length) throw new HttpError(409,"You are already enrolled in this course.");
+      const pending=await supabaseRequest<SupabaseApplication[]>(tablePath(new URLSearchParams({select:"id",student_id:`eq.${studentId}`,course_id:`eq.${input.course_id}`,status:'eq.pending',submission_state:'eq.complete',limit:'1'}).toString()));
+      if(pending.length) throw new HttpError(409,"A pending application already exists for this course.");
+      const path=await claimUpload(client,input.receipt,'receipt',String(studentId));
+      const created=await supabaseRequest<SupabaseApplication[]>(tablePath('select=id,status'),{
+        method:'POST',headers:{'Content-Type':'application/json',Prefer:'return=representation'},
+        body:JSON.stringify({id:input.receipt.upload_id,student_id:String(studentId),student_name:student.full_name,student_email:student.email,student_phone:input.student_phone,course_id:String(course.id),course_title:course.title,transfer_reference:input.transfer_reference||null,sender_account_title:input.sender_account_title,sender_account_number:input.sender_account_number,receipt_path:path,status:'pending',submission_state:'complete',cleanup_status:'none',cleanup_attempts:0}),
       });
-    }
-    if (
-      studentPhone.length > 64 ||
-      senderAccountTitle.length > 255 ||
-      senderAccountNumber.length > 255 ||
-      transferReference.length > 255
-    ) {
-      return res.status(400).json({ success: false, error: "One or more enrollment details are too long." });
-    }
-
-    let receipt: ReturnType<typeof parseReceipt>;
-    try {
-      receipt = parseReceipt(req.body.receipt_data_url);
-    } catch (error) {
-      return res.status(400).json({
-        success: false,
-        error: error instanceof Error ? error.message : "Invalid receipt file.",
-      });
-    }
-
-    const [user, course] = await Promise.all([
-      query(
-        "SELECT id, full_name, email, role FROM users WHERE id = $1",
-        [req.user.userId],
-      ),
-      query("SELECT id, title FROM courses WHERE id = $1", [courseId]),
-    ]);
-    if (!user.rows[0] || user.rows[0].role !== "student") {
-      return res.status(403).json({ success: false, error: "A student account is required." });
-    }
-    if (!course.rows[0]) {
-      return res.status(404).json({ success: false, error: "Course not found." });
-    }
-    const enrolled = await query(
-      "SELECT id FROM enrollments WHERE student_id = $1 AND course_id = $2",
-      [user.rows[0].id, courseId],
-    );
-    if (enrolled.rows.length) {
-      return res.status(409).json({
-        success: false,
-        error: "You are already enrolled in this course.",
-      });
-    }
-
-    const existing = await supabaseRequest<SupabaseApplication[]>(
-      tablePath(
-        new URLSearchParams({
-          select: "id",
-          student_id: `eq.${user.rows[0].id}`,
-          course_id: `eq.${courseId}`,
-          status: "eq.pending",
-          submission_state: "eq.complete",
-          limit: "1",
-        }).toString(),
-      ),
-    );
-    if (existing.length) {
-      return res.status(409).json({
-        success: false,
-        error: "A pending application already exists for this course.",
-      });
-    }
-
-    const applicationIdValue = crypto.randomUUID();
-    applicationId = applicationIdValue;
-    const extension = receipt.extension;
-    const receiptPath = `${user.rows[0].id}/${applicationIdValue}.${extension}`;
-    const created = await supabaseRequest<SupabaseApplication[]>(
-      tablePath("select=*"),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Prefer: "return=representation",
-        },
-        body: JSON.stringify({
-          id: applicationIdValue,
-          student_id: String(user.rows[0].id),
-          student_name: user.rows[0].full_name,
-          student_email: user.rows[0].email,
-          student_phone: studentPhone,
-          course_id: String(course.rows[0].id),
-          course_title: course.rows[0].title,
-          transfer_reference: transferReference || null,
-          sender_account_title: senderAccountTitle,
-          sender_account_number: senderAccountNumber,
-          receipt_path: receiptPath,
-          status: "pending",
-          submission_state: "uploading",
-          cleanup_status: "none",
-          cleanup_attempts: 0,
-        }),
-      },
-    );
-    if (!created[0]) {
-      throw new Error("Supabase did not return the created enrollment application.");
-    }
-
-    try {
-      await uploadReceipt(receiptPath, receipt.contentType, receipt.data);
-      const completed = await updateApplication(
-        applicationIdValue,
-        { submission_state: "complete" },
-        "submission_state=eq.uploading",
-      );
-      if (!completed[0]) {
-        throw new Error("Receipt was uploaded but the application could not be finalized.");
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error ? error.message : "Unknown receipt upload error";
-      await updateApplication(applicationIdValue, {
-        submission_state: "failed",
-        cleanup_status: "queued",
-        cleanup_error: message.slice(0, 1000),
-        next_cleanup_at: new Date().toISOString(),
-      });
-      console.error(`Receipt upload failed for enrollment ${applicationIdValue}:`, error);
-      return res.status(502).json({
-        success: false,
-        error: "Receipt upload failed. The incomplete application is queued for automatic cleanup; please retry later.",
-      });
-    }
-
-    res.status(201).json({
-      success: true,
-      data: { id: applicationIdValue, status: "pending" },
-      message: "Enrollment application submitted for review.",
+      if(!created[0]) throw new Error('Application storage returned no result');
+      return {id:created[0].id,status:created[0].status};
     });
-  } catch (error) {
-    console.error("Error creating enrollment application:", error);
-    res.status(500).json({
-      success: false,
-      error:
-        error instanceof Error && error.message.includes("Supabase server configuration")
-          ? error.message
-          : "Failed to create enrollment application",
-    });
-  }
+    res.status(201).json({success:true,data:result,message:'Enrollment application submitted for review.'});
+  } catch(error){respondError(res,error,'Unable to submit enrollment application. Please retry.');}
 };
+export const getMyEnrollmentStatus:RequestHandler=async(req,res)=>{
+  try {
+    const id=z.uuid().parse(req.params.id);
+    const rows=await supabaseRequest<SupabaseApplication[]>(tablePath(new URLSearchParams({select:'id,status,submission_state,course_id,course_title,requested_at,reviewed_at',id:`eq.${id}`,student_id:`eq.${req.user!.userId}`,limit:'1'}).toString()));
+    if(!rows[0]) throw new HttpError(404,'Enrollment application not found.');
+    res.setHeader('Cache-Control','no-store');res.json({success:true,data:rows[0]});
+  }catch(error){respondError(res,error,'Unable to load application status');}
+};
+// An uncertain response from the external application store must never cause its receipt to be removed.
+export async function receiptIsReferenced(path:string) {
+  const rows=await supabaseRequest<{id:string}[]>(tablePath(new URLSearchParams({select:'id',receipt_path:`eq.${path}`,limit:'1'}).toString()));
+  return rows.length>0;
+}
 
 export const getEnrollmentReceiptUrl: RequestHandler = async (req, res) => {
   try {

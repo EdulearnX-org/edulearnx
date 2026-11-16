@@ -258,6 +258,28 @@ export function createServer() {
   apiRouter.put("/lessons/:id", requireAuth, requireAdminFeature("courses"), progressRoutes.updateLesson);
   apiRouter.delete("/lessons/:id", requireAuth, requireAdminFeature("courses"), progressRoutes.deleteLesson);
 
+  apiRouter.get("/keep-alive", async (_req, res) => {
+    const start = Date.now();
+    try {
+      if (!isDatabaseConfigured) {
+        return res.status(503).json({
+          success: false,
+          latencyMs: Date.now() - start,
+          error: "Database is not configured",
+        });
+      }
+      await query("SELECT 1");
+      return res.json({ success: true, latencyMs: Date.now() - start });
+    } catch (error) {
+      console.error("Database keep-alive failed:", error);
+      return res.status(503).json({
+        success: false,
+        latencyMs: Date.now() - start,
+        error: "Database is temporarily unavailable",
+      });
+    }
+  });
+
   apiRouter.get("/health", async (_req, res) => {
     try {
       if (!isDatabaseConfigured || !(await hasRequiredSchema())) {

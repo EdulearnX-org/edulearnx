@@ -77,7 +77,7 @@ export function initializeServer() {
 export const requiredSchemaColumns: Record<string, readonly string[]> = {
   users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions"],
   courses: ["id", "instructor_id", "price_cents", "is_published", "meeting_id", "zoom_link"],
-  enrollments: ["student_id", "course_id", "progress_percentage", "is_completed"],
+  enrollments: ["student_id", "course_id", "class_time_slot", "progress_percentage", "is_completed"],
   auth_sessions: ["token_hash", "user_id", "expires_at"],
   password_reset_tokens: ["token_hash", "user_id", "created_by", "expires_at"],
   contact_messages: ["id", "name", "email", "subject", "message"],
@@ -196,6 +196,7 @@ export function createServer() {
 
   apiRouter.get("/enrollments", requireAuth, courseRoutes.getEnrollments);
   apiRouter.post("/enrollments", requireAuth, courseRoutes.enrollStudent);
+  apiRouter.patch("/enrollments/:id/time-slot", requireAuth, courseRoutes.updateEnrollmentTimeSlot);
   apiRouter.delete("/enrollments/:id", requireAuth, requireAdminFeature("enrollmentRequests"), courseRoutes.deleteEnrollment);
   apiRouter.get("/enrollment-requests", requireAuth, requireAdminFeature("enrollmentRequests"), enrollmentRequestRoutes.getEnrollmentRequests);
   apiRouter.post("/enrollment-requests", requireAuth, enrollmentRequestRoutes.createEnrollmentRequest);

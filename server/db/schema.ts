@@ -128,6 +128,7 @@ export async function initializeDatabase() {
         id SERIAL PRIMARY KEY,
         student_id ${userRefType} NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         course_id ${courseRefType} NOT NULL REFERENCES courses(id) ON DELETE CASCADE,
+        class_time_slot VARCHAR(5),
         progress_percentage FLOAT DEFAULT 0,
         is_completed BOOLEAN DEFAULT false,
         enrolled_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -137,8 +138,20 @@ export async function initializeDatabase() {
     `);
     await query(`ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS user_id ${userRefType};`);
     await query(`ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS student_id ${userRefType} REFERENCES users(id) ON DELETE CASCADE;`);
+    await query(`ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS class_time_slot VARCHAR(5);`);
     await query(`ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS progress_percentage FLOAT DEFAULT 0;`);
     await query(`ALTER TABLE enrollments ADD COLUMN IF NOT EXISTS is_completed BOOLEAN DEFAULT false;`);
+    await query(`ALTER TABLE enrollments DROP CONSTRAINT IF EXISTS enrollments_class_time_slot_check;`);
+    await query(`
+      ALTER TABLE enrollments
+      ADD CONSTRAINT enrollments_class_time_slot_check
+      CHECK (class_time_slot IS NULL OR class_time_slot IN ('08:00', '14:00', '15:00', '16:00', '17:00'));
+    `);
+    await query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_enrollments_student_time_slot
+      ON enrollments(student_id, class_time_slot)
+      WHERE class_time_slot IS NOT NULL;
+    `);
     await query(`
       UPDATE enrollments
       SET student_id = user_id

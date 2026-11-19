@@ -7,6 +7,7 @@ import { courseVisibility } from "../utils/courseAccess.js";
 import { transaction } from "../utils/transaction.js";
 import { HttpError, respondError } from "../utils/errors.js";
 import { dateSchema, idSchema, moneySchema, optionalText } from "../../shared/validation.js";
+import { STUDENT_CLASS_TIME_SLOT_VALUES } from "../../shared/classTimeSlots.js";
 import { courseProgressSql } from "../utils/courseProgress.js";
 
 const fields = z.object({
@@ -20,6 +21,9 @@ const fields = z.object({
   thumbnail_url: z.union([z.literal(""), z.url().max(2048).refine(value => /^https?:/.test(value))]).nullable().optional(),
   price_cents: moneySchema,
   is_published: z.boolean().optional(),
+}).strict();
+const enrollmentTimeSlotInput = z.object({
+  class_time_slot: z.enum(STUDENT_CLASS_TIME_SLOT_VALUES),
 }).strict();
 const selectCourse = `SELECT c.id, c.title, c.description, c.instructor_id, c.category,
   c.duration_weeks, c.start_date, c.end_date, c.thumbnail_url, c.meeting_id,
@@ -226,6 +230,7 @@ export const getEnrollments: RequestHandler = async (req, res) => {
 
     const result = await query(queryStr, params);
 
+    res.set("Cache-Control", "no-store");
     res.json({
       success: true,
       data: result.rows,
@@ -237,6 +242,76 @@ export const getEnrollments: RequestHandler = async (req, res) => {
       success: false,
       error: "Failed to fetch enrollments",
     });
+  }
+};
+
+export const updateEnrollmentTimeSlot: RequestHandler = async (req, res) => {
+  try {
+    const actor = req.user;
+    if (!actor || actor.role !== "student") {
+      throw new HttpError(403, "A student account is required to book a class slot.");
+    }
+
+    const enrollmentId = idSchema.parse(req.params.id);
+    const { class_time_slot } = enrollmentTimeSlotInput.parse(req.body);
+
+    const enrollment = await transaction(async client => {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+        ["enrollment-time-slot", String(actor.userId)],
+      );
+      // Lock this student's timetable so concurrent bookings cannot both pass
+      // the availability check before the unique index is updated.
+      await client.query(
+        "SELECT id FROM enrollments WHERE student_id=$1 ORDER BY id FOR UPDATE",
+        [actor.userId],
+      );
+
+      const current = (await client.query(
+        `SELECT e.id, e.student_id, e.course_id, e.class_time_slot, c.title AS course_title
+         FROM enrollments e
+         JOIN courses c ON c.id=e.course_id
+         WHERE e.id=$1 AND e.student_id=$2`,
+        [enrollmentId, actor.userId],
+      )).rows[0];
+
+      if (!current) {
+        throw new HttpError(404, "Enrolled course not found.");
+      }
+
+      const conflict = (await client.query(
+        `SELECT c.title AS course_title
+         FROM enrollments e
+         JOIN courses c ON c.id=e.course_id
+         WHERE e.student_id=$1 AND e.class_time_slot=$2 AND e.id<>$3
+         LIMIT 1`,
+        [actor.userId, class_time_slot, enrollmentId],
+      )).rows[0];
+
+      if (conflict) {
+        throw new HttpError(
+          409,
+          `This time is already booked for ${conflict.course_title}. Choose another slot.`,
+        );
+      }
+
+      return (await client.query(
+        `UPDATE enrollments
+         SET class_time_slot=$1
+         WHERE id=$2 AND student_id=$3
+         RETURNING id, student_id, course_id, class_time_slot`,
+        [class_time_slot, enrollmentId, actor.userId],
+      )).rows[0];
+    });
+
+    res.set("Cache-Control", "no-store");
+    return res.json({
+      success: true,
+      data: enrollment,
+      message: "Class slot booked successfully.",
+    });
+  } catch (error) {
+    return respondError(res, error, "Unable to book class slot");
   }
 };
 

@@ -13,6 +13,8 @@ describe("enrollment review durability", () => {
   let enrolled: boolean;
   let failInsert: boolean;
   let failFinalization: boolean;
+  let occupiedSlot: boolean;
+  let insertedSlot: string | null | undefined;
   let events: string[];
   let lockTail: Promise<void>;
   let beforeFinalization: (() => Promise<void>) | undefined;
@@ -26,10 +28,12 @@ describe("enrollment review durability", () => {
   beforeEach(() => {
     vi.stubEnv("SUPABASE_URL", "https://test.invalid");
     vi.stubEnv("SUPABASE_SECRET_KEY", "test-only");
-    application = { id: "application-1", student_id: "11", course_id: "22", status: "pending", submission_state: "complete", cleanup_status: "none", cleanup_attempts: 0, receipt_path: "11/receipt.pdf" };
+    application = { id: "application-1", student_id: "11", course_id: "22", class_time_slot: "14:00", status: "pending", submission_state: "complete", cleanup_status: "none", cleanup_attempts: 0, receipt_path: "11/receipt.pdf" };
     enrolled = false;
     failInsert = false;
     failFinalization = false;
+    occupiedSlot = false;
+    insertedSlot = undefined;
     events = [];
     lockTail = Promise.resolve();
     beforeFinalization = undefined;
@@ -37,9 +41,10 @@ describe("enrollment review durability", () => {
       let unlock: (() => void) | undefined;
       let pendingGrant = false;
       return {
-        query: vi.fn(async (sql: string) => {
+        query: vi.fn(async (sql: string, values?: unknown[]) => {
           if (sql === "BEGIN") return { rows: [] };
           if (sql.includes("pg_advisory_xact_lock(")) {
+            if (values?.[0] === "enrollment-time-slot") return { rows: [] };
             const previous = lockTail;
             lockTail = new Promise<void>((resolve) => { unlock = resolve; });
             await previous;
@@ -52,7 +57,10 @@ describe("enrollment review durability", () => {
             unlock?.();
           } else if (sql.startsWith("INSERT INTO enrollments")) {
             if (failInsert) { failInsert = false; throw new Error("temporary database failure"); }
+            insertedSlot = values?.[2] as string | null;
             pendingGrant = true;
+          } else if (sql.includes("class_time_slot")) {
+            return { rows: occupiedSlot ? [{ id: 2 }] : [] };
           } else if (sql.startsWith("SELECT id FROM enrollments")) {
             return { rows: enrolled ? [{ id: 1 }] : [] };
           } else throw new Error(`Unexpected SQL: ${sql}`);
@@ -94,6 +102,7 @@ describe("enrollment review durability", () => {
     expect(events).not.toContain("receipt-deleted");
     expect((await runReview("approved")).statusCode).toBe(200);
     expect(application).toMatchObject({ status: "approved", cleanup_status: "complete" });
+    expect(insertedSlot).toBe("14:00");
     expect(events).toEqual(["enrollment-committed", "decision-approved", "receipt-deleted"]);
   });
 
@@ -154,6 +163,18 @@ describe("enrollment review durability", () => {
     expect((await runReview("rejected")).statusCode).toBe(200);
     expect(application.status).toBe("rejected");
     expect(enrolled).toBe(false);
+  });
+
+  it("keeps an application pending when its chosen time is no longer available", async () => {
+    occupiedSlot = true;
+
+    const response = await runReview("approved");
+
+    expect(response.statusCode).toBe(409);
+    expect(response.body.error).toContain("no longer available");
+    expect(application).toMatchObject({ status: "pending", cleanup_status: "none" });
+    expect(enrolled).toBe(false);
+    expect(events).not.toContain("receipt-deleted");
   });
 
   it("counts the Supabase queue beyond the REST row limit", async () => {

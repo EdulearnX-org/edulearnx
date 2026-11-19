@@ -185,6 +185,7 @@ export interface Enrollment {
   id: number;
   student_id: number | string;
   course_id: number | string;
+  class_time_slot?: string | null;
   progress_percentage: number;
   is_completed: boolean;
   enrolled_at: string;

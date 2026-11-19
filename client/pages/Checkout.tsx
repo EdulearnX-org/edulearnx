@@ -4,6 +4,10 @@ import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { readApiResponse } from "@/lib/api";
 import { useCurrentUser } from "@/lib/user";
+import { useStudentEnrollments } from "@/hooks/useStudentEnrollments";
+import {
+  STUDENT_CLASS_TIME_SLOTS,
+} from "@shared/classTimeSlots";
 import { ArrowLeft, CheckCircle2, Upload } from "lucide-react";
 
 type Course = { id: number; title: string; description: string | null; price_cents: number };
@@ -21,6 +25,12 @@ function formatFileSize(bytes: number) {
 export default function Checkout() {
   const { courseId } = useParams<{ courseId: string }>();
   const user = useCurrentUser();
+  const {
+    enrollments,
+    isLoading: enrollmentsLoading,
+    error: enrollmentsError,
+  } = useStudentEnrollments(user?.id);
+  const [classTimeSlot, setClassTimeSlot] = useState("");
   const [studentPhone, setStudentPhone] = useState(user?.phone ?? "");
   const [senderAccountTitle, setSenderAccountTitle] = useState("");
   const [senderAccountNumber, setSenderAccountNumber] = useState("");
@@ -35,6 +45,12 @@ export default function Checkout() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
+  const bookedTimeSlots = new Set(
+    enrollments.map((enrollment) => enrollment.class_time_slot).filter(Boolean),
+  );
+  const availableTimeSlots = STUDENT_CLASS_TIME_SLOTS.filter(
+    (slot) => !bookedTimeSlots.has(slot.value),
+  );
 
   const { data: course, isLoading, error: courseError } = useQuery({
     queryKey: ["course", courseId, user?.id],
@@ -72,8 +88,18 @@ export default function Checkout() {
     event.preventDefault(); setError(""); setMessage("");
     if (submitting.current || message) return;
     if (!user || user.role !== "student") { setError("Please sign in with a student account before submitting payment proof."); return; }
-    if (!receipt || !studentPhone.trim() || !senderAccountTitle.trim() || !senderAccountNumber.trim()) {
-      setError("Enter your phone number, sender account title and number, and upload your receipt.");
+    if (
+      !receipt ||
+      !studentPhone.trim() ||
+      !senderAccountTitle.trim() ||
+      !senderAccountNumber.trim() ||
+      !classTimeSlot
+    ) {
+      setError("Choose a class time, enter your phone and account details, and upload your receipt.");
+      return;
+    }
+    if (enrollmentsLoading || enrollmentsError || bookedTimeSlots.has(classTimeSlot)) {
+      setError(enrollmentsError || "That class time is no longer available. Choose another slot.");
       return;
     }
     submitting.current=true;
@@ -81,7 +107,7 @@ export default function Checkout() {
     setUploadProgress({ loaded: 0, total: 0 });
     try {
       uploadedReceipt.current ||= await uploadPrivateFile(receipt,'receipt',setUploadProgress);
-      const response=await fetch('/api/enrollment-requests',{method:'POST',signal:AbortSignal.timeout(60_000),headers:{'Content-Type':'application/json'},body:JSON.stringify({course_id:course?.id,student_phone:studentPhone.trim(),sender_account_title:senderAccountTitle.trim(),sender_account_number:senderAccountNumber.trim(),receipt:uploadedReceipt.current})});
+      const response=await fetch('/api/enrollment-requests',{method:'POST',signal:AbortSignal.timeout(60_000),headers:{'Content-Type':'application/json'},body:JSON.stringify({course_id:course?.id,class_time_slot:classTimeSlot,student_phone:studentPhone.trim(),sender_account_title:senderAccountTitle.trim(),sender_account_number:senderAccountNumber.trim(),receipt:uploadedReceipt.current})});
       const payload=await readApiResponse(response);
       if(!response.ok || !payload.success) throw new Error(payload.error||'Unable to submit payment proof.');
       setApplicationId(payload.data.id);
@@ -102,8 +128,8 @@ export default function Checkout() {
   return <main className="min-h-screen bg-slate-950 px-4 py-10 text-white sm:px-6"><div className="mx-auto max-w-5xl">
     <Link to={`/course/${course.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-cyan-300 hover:text-white"><ArrowLeft className="h-4 w-4" /> Back to course</Link>
     <div className="mt-8 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-      <section className="rounded-2xl border border-white/10 bg-slate-900 p-6"><p className="text-sm font-semibold uppercase tracking-wide text-cyan-300">Manual payment</p><h1 className="mt-3 text-3xl font-bold">{course.title}</h1><p className="mt-4 text-slate-300">{course.description || "Transfer the course fee and submit proof for admin approval."}</p><p className="mt-8 text-sm text-slate-400">Amount to transfer</p><p className="mt-1 text-4xl font-bold">${amount}</p><div className="mt-8 rounded-xl border border-cyan-400/30 bg-cyan-400/10 p-4"><p className="font-semibold text-cyan-100">Enrollment is approved manually</p><p className="mt-2 text-sm leading-6 text-cyan-50/80">Your course access begins only after an admin verifies the transfer receipt.</p></div></section>
-      <section className="rounded-2xl border border-white/10 bg-white p-6 text-slate-950">
+      <section className="rounded-2xl border border-white/10 bg-slate-900/65 p-6 shadow-xl backdrop-blur-md"><p className="text-sm font-semibold uppercase tracking-wide text-cyan-300">Manual payment</p><h1 className="mt-3 text-3xl font-bold">{course.title}</h1><p className="mt-4 text-slate-300">{course.description || "Transfer the course fee and submit proof for admin approval."}</p><p className="mt-8 text-sm text-slate-400">Amount to transfer</p><p className="mt-1 text-4xl font-bold">${amount}</p><div className="mt-8 rounded-xl border border-cyan-400/30 bg-cyan-400/10 p-4"><p className="font-semibold text-cyan-100">Enrollment is approved manually</p><p className="mt-2 text-sm leading-6 text-cyan-50/80">Your course access begins only after an admin verifies the transfer receipt.</p></div></section>
+      <section className="rounded-2xl border border-white/30 bg-white/80 p-6 text-slate-950 shadow-xl backdrop-blur-md">
         <h2 className="text-2xl font-bold">Transfer details</h2>
         {settingsLoading ? <p role="status" className="mt-5 text-sm text-slate-600">Loading payment details...</p> : settingsError ? (
           <div role="alert" className="mt-5 rounded-xl bg-red-50 p-4 text-sm text-red-700">
@@ -119,6 +145,33 @@ export default function Checkout() {
         ) : user.role !== "student" ? <p role="status" className="mt-5 rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Use a student account to submit payment proof.</p> : null}
         <form onSubmit={submitRequest} aria-busy={isSubmitting} className="mt-6 space-y-4">
           <fieldset disabled={isSubmitting || Boolean(message) || user?.role !== "student"} className="min-w-0 space-y-4">
+          <label className="block text-sm font-semibold">Choose a class time
+            <select
+              required
+              value={classTimeSlot}
+              onChange={(event) => setClassTimeSlot(event.target.value)}
+              disabled={enrollmentsLoading || availableTimeSlots.length === 0}
+              className="mt-2 w-full rounded-lg border border-slate-300 bg-white/75 px-3 py-3 font-normal outline-none focus:border-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">
+                {enrollmentsLoading
+                  ? "Loading available times..."
+                  : availableTimeSlots.length
+                    ? "Select a time slot"
+                    : "No class times available"}
+              </option>
+              {availableTimeSlots.map((slot) => (
+                <option key={slot.value} value={slot.value}>
+                  {slot.label}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs font-normal text-slate-600">
+              {enrollmentsError
+                ? `Unable to check availability: ${enrollmentsError}`
+                : "You can change your class time later from Enrolled Courses."}
+            </span>
+          </label>
           <label className="block text-sm font-semibold">Your phone number<input required type="tel" autoComplete="tel" maxLength={20} value={studentPhone} onChange={(event) => setStudentPhone(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Phone number for your enrollment application" /></label>
           <label className="block text-sm font-semibold">Your account title<input required maxLength={255} value={senderAccountTitle} onChange={(event) => setSenderAccountTitle(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Name registered to the sending account" /></label>
           <label className="block text-sm font-semibold">Your account number<input required maxLength={255} value={senderAccountNumber} onChange={(event) => setSenderAccountNumber(event.target.value)} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-3 font-normal outline-none focus:border-slate-950" placeholder="Account used to make the transfer" /></label>
@@ -127,7 +180,7 @@ export default function Checkout() {
           {isReadingReceipt && <p role="status" className="text-sm text-slate-600">Reading receipt...</p>}
           {error && <p role="alert" className="rounded-lg bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
           {applicationId && <Link className="block text-cyan-300 underline" to={`/payment-success?application_id=${encodeURIComponent(applicationId)}`}>View application status</Link>}{message && <p role="status" className="flex items-center gap-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700"><CheckCircle2 className="h-4 w-4" />{message}</p>}
-          <button disabled={isSubmitting || Boolean(message) || isReadingReceipt || !receipt || settingsLoading || Boolean(settingsError) || !user || user.role !== "student"} className="w-full rounded-lg bg-slate-950 px-5 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isSubmitting ? "Submitting proof..." : "Submit payment proof"}</button>
+          <button disabled={isSubmitting || Boolean(message) || isReadingReceipt || !receipt || !classTimeSlot || enrollmentsLoading || Boolean(enrollmentsError) || settingsLoading || Boolean(settingsError) || !user || user.role !== "student"} className="w-full rounded-lg bg-slate-950 px-5 py-3 font-bold text-white disabled:cursor-not-allowed disabled:opacity-50">{isSubmitting ? "Submitting proof..." : "Submit payment proof"}</button>
           </fieldset>
         </form>
       </section>

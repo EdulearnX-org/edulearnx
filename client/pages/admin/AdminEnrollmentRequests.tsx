@@ -1,6 +1,7 @@
 import DashboardCard from "@/components/DashboardCard";
 import { useEnrollmentRequests } from "@/hooks/useEnrollmentRequests";
 import { getCurrentPortalUser } from "@/lib/portalData";
+import { studentClassTimeSlotLabel } from "@shared/classTimeSlots";
 import { CheckCircle2, Clock, ExternalLink, RotateCw, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import AdminShell from "./AdminShell";
@@ -112,6 +113,11 @@ export default function AdminEnrollmentRequests() {
                     </div>
                     <p className="mt-1 text-sm text-slate-400">{request.student_email} requested {request.course_title}</p>
                     <p className="mt-1 text-sm text-slate-300">Phone: {request.student_phone}</p>
+                    {request.class_time_slot && (
+                      <p className="mt-1 text-sm text-cyan-200">
+                        Requested class time: {studentClassTimeSlotLabel(request.class_time_slot) ?? request.class_time_slot}
+                      </p>
+                    )}
                     {request.submission_state === "failed" && (
                       <p className="mt-2 rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-200">
                         Receipt upload failed. This application cannot be reviewed.

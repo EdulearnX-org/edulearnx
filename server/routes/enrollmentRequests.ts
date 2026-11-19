@@ -6,6 +6,7 @@ import { idSchema, pageSchema, phoneSchema } from "../../shared/validation.js";
 import { transaction } from "../utils/transaction.js";
 import { HttpError, respondError } from "../utils/errors.js";
 import { claimUpload, uploadReference } from "./uploads.js";
+import { STUDENT_CLASS_TIME_SLOT_VALUES } from "../../shared/classTimeSlots.js";
 
 const bucket = "payment-receipts";
 const signedUrlLifetimeSeconds = 120;
@@ -24,6 +25,7 @@ type SupabaseApplication = {
   student_name: string;
   student_email: string;
   student_phone: string;
+  class_time_slot: string | null;
   course_title: string;
   transfer_reference: string | null;
   sender_account_title: string;
@@ -326,7 +328,7 @@ export const getEnrollmentRequests: RequestHandler = async (req, res) => {
 };
 
 const enrollmentInput=z.object({
-  course_id:idSchema,student_phone:phoneSchema.min(1),
+  course_id:idSchema,class_time_slot:z.enum(STUDENT_CLASS_TIME_SLOT_VALUES),student_phone:phoneSchema.min(1),
   sender_account_title:z.string().trim().min(1).max(255),
   sender_account_number:z.string().trim().min(1).max(255),
   transfer_reference:z.string().trim().max(255).optional(),receipt:uploadReference,
@@ -338,18 +340,21 @@ export const createEnrollmentRequest: RequestHandler = async (req,res) => {
     const studentId=req.user.userId;
     const result=await transaction(async client=>{
       await client.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",[String(studentId),String(input.course_id)]);
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1),hashtext($2))",["enrollment-time-slot",String(studentId)]);
       const student=(await client.query("SELECT id,full_name,email FROM users WHERE id=$1",[studentId])).rows[0];
       const course=(await client.query("SELECT id,title FROM courses WHERE id=$1 AND is_published=true FOR SHARE",[input.course_id])).rows[0];
       if(!student || !course) throw new HttpError(404,"Published course not found.");
       const previous=await supabaseRequest<SupabaseApplication[]>(tablePath(new URLSearchParams({select:"*",id:`eq.${input.receipt.upload_id}`,student_id:`eq.${studentId}`,limit:"1"}).toString()));
       if(previous[0]?.submission_state==='complete') return {id:previous[0].id,status:previous[0].status};
       if((await client.query("SELECT id FROM enrollments WHERE student_id=$1 AND course_id=$2",[studentId,input.course_id])).rows.length) throw new HttpError(409,"You are already enrolled in this course.");
+      const slotConflict=(await client.query("SELECT id FROM enrollments WHERE student_id=$1 AND class_time_slot=$2 LIMIT 1",[studentId,input.class_time_slot])).rows[0];
+      if(slotConflict) throw new HttpError(409,"That class time is already booked for another course. Choose another slot.");
       const pending=await supabaseRequest<SupabaseApplication[]>(tablePath(new URLSearchParams({select:"id",student_id:`eq.${studentId}`,course_id:`eq.${input.course_id}`,status:'eq.pending',submission_state:'eq.complete',limit:'1'}).toString()));
       if(pending.length) throw new HttpError(409,"A pending application already exists for this course.");
       const path=await claimUpload(client,input.receipt,'receipt',String(studentId));
       const created=await supabaseRequest<SupabaseApplication[]>(tablePath('select=id,status'),{
         method:'POST',headers:{'Content-Type':'application/json',Prefer:'return=representation'},
-        body:JSON.stringify({id:input.receipt.upload_id,student_id:String(studentId),student_name:student.full_name,student_email:student.email,student_phone:input.student_phone,course_id:String(course.id),course_title:course.title,transfer_reference:input.transfer_reference||null,sender_account_title:input.sender_account_title,sender_account_number:input.sender_account_number,receipt_path:path,status:'pending',submission_state:'complete',cleanup_status:'none',cleanup_attempts:0}),
+        body:JSON.stringify({id:input.receipt.upload_id,student_id:String(studentId),student_name:student.full_name,student_email:student.email,student_phone:input.student_phone,class_time_slot:input.class_time_slot,course_id:String(course.id),course_title:course.title,transfer_reference:input.transfer_reference||null,sender_account_title:input.sender_account_title,sender_account_number:input.sender_account_number,receipt_path:path,status:'pending',submission_state:'complete',cleanup_status:'none',cleanup_attempts:0}),
       });
       if(!created[0]) throw new Error('Application storage returned no result');
       return {id:created[0].id,status:created[0].status};
@@ -462,11 +467,24 @@ export const reviewEnrollmentRequest: RequestHandler = async (req, res) => {
 
     let status = requestedStatus;
     if (requestedStatus === "approved") {
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))",
+        ["enrollment-time-slot", application.student_id],
+      );
+      if (application.class_time_slot) {
+        const conflict = await client.query(
+          "SELECT id FROM enrollments WHERE student_id=$1 AND class_time_slot=$2 AND course_id<>$3 LIMIT 1",
+          [application.student_id, application.class_time_slot, application.course_id],
+        );
+        if (conflict.rows.length) {
+          throw new HttpError(409, "The selected class time is no longer available. Ask the student to choose another time.");
+        }
+      }
       // This INSERT commits before the decision can queue destructive cleanup.
       // Retrying after a remote finalization failure is safe and idempotent.
       await client.query(
-        "INSERT INTO enrollments (student_id, course_id) VALUES ($1, $2) ON CONFLICT (student_id, course_id) DO NOTHING",
-        [application.student_id, application.course_id],
+        "INSERT INTO enrollments (student_id, course_id, class_time_slot) VALUES ($1, $2, $3) ON CONFLICT (student_id, course_id) DO NOTHING",
+        [application.student_id, application.course_id, application.class_time_slot],
       );
     } else {
       const membership = await client.query(
@@ -533,6 +551,9 @@ export const reviewEnrollmentRequest: RequestHandler = async (req, res) => {
           : `Enrollment application ${status}; receipt cleanup is being processed.`,
     });
   } catch (error) {
+    if (error instanceof HttpError && error.status === 409) {
+      return res.status(error.status).json({ success: false, error: error.message });
+    }
     console.error("Error reviewing enrollment application:", error);
     return res.status(500).json({
       success: false,

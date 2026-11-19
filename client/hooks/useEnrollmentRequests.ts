@@ -10,6 +10,7 @@ export type EnrollmentRequest = {
   cleanup_attempts: number;
   cleanup_error: string | null;
   student_phone: string;
+  class_time_slot: string | null;
   requested_at: string;
   reviewed_at: string | null;
   student_email: string;

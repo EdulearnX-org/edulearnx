@@ -5,6 +5,10 @@ import { useStudentEnrollments } from "@/hooks/useStudentEnrollments";
 import { useStudentRewards } from "@/hooks/useStudentRewards";
 import { localLiveClassWindowLabel, useLiveClasses } from "@/hooks/useLiveClasses";
 import {
+  STUDENT_CLASS_TIME_SLOTS,
+  studentClassTimeSlotLabel,
+} from "@shared/classTimeSlots";
+import {
   getCurrentPortalUser,
   updateCurrentPortalUser,
 } from "@/lib/portalData";
@@ -12,6 +16,7 @@ import {
   Award,
   BookOpen,
   CalendarDays,
+  Clock3,
   Coins,
   Flame,
   LayoutDashboard,
@@ -82,6 +87,9 @@ export default function StudentDashboard({
   const [profilePhone, setProfilePhone] = useState(currentUser?.phone ?? "");
   const [profileStatus, setProfileStatus] = useState("");
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [selectedTimeSlots, setSelectedTimeSlots] = useState<Record<string, string>>({});
+  const [bookingTimeSlotFor, setBookingTimeSlotFor] = useState<string | null>(null);
+  const [timeSlotStatus, setTimeSlotStatus] = useState<Record<string, string>>({});
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -170,11 +178,65 @@ export default function StudentDashboard({
     { label: "Settings", icon: <Settings size={18} />, href: "/student/settings" },
   ];
 
+  const bookClassTimeSlot = async (enrollmentId: number) => {
+    const key = String(enrollmentId);
+    const enrollment = enrollments.find((item) => item.id === enrollmentId);
+    const classTimeSlot = selectedTimeSlots[key] || enrollment?.class_time_slot;
+
+    if (!classTimeSlot) {
+      setTimeSlotStatus((current) => ({
+        ...current,
+        [key]: "Choose an available time first.",
+      }));
+      return;
+    }
+
+    setBookingTimeSlotFor(key);
+    setTimeSlotStatus((current) => ({ ...current, [key]: "" }));
+
+    try {
+      const response = await fetch(`/api/enrollments/${enrollmentId}/time-slot`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ class_time_slot: classTimeSlot }),
+      });
+      const payload = await response.json();
+
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || "Unable to book class slot.");
+      }
+
+      setSelectedTimeSlots((current) =>
+        Object.fromEntries(
+          Object.entries(current).filter(
+            ([otherEnrollmentId, value]) =>
+              otherEnrollmentId === key || value !== classTimeSlot,
+          ),
+        ),
+      );
+      setTimeSlotStatus((current) => ({
+        ...current,
+        [key]: `Booked ${studentClassTimeSlotLabel(classTimeSlot)}.`,
+      }));
+      window.dispatchEvent(new Event("edulearnx-data-change"));
+    } catch (err) {
+      setTimeSlotStatus((current) => ({
+        ...current,
+        [key]: err instanceof Error ? err.message : "Unable to book class slot.",
+      }));
+    } finally {
+      setBookingTimeSlotFor(null);
+    }
+  };
+
   const renderCourses = () => (
-    <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <section className="rounded-lg border border-slate-300 bg-white/70 p-5 shadow-sm backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/70">
       <h2 className="font-semibold text-slate-950 dark:text-white">
         Enrolled Courses
       </h2>
+      <p className="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">
+        Book one 40-minute class time for each course. A booked time is removed from your other courses to prevent collisions.
+      </p>
       <div className="mt-4 space-y-3">
         {isLoading ? (
           <p className="text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -200,7 +262,25 @@ export default function StudentDashboard({
             </Link>
           </div>
         ) : (
-          enrollments.map((enrollment) => (
+          enrollments.map((enrollment) => {
+            const enrollmentKey = String(enrollment.id);
+            const bookedByOtherCourse = new Set(
+              enrollments
+                .filter((item) => item.id !== enrollment.id && item.class_time_slot)
+                .map((item) => item.class_time_slot),
+            );
+            const availableTimeSlots = STUDENT_CLASS_TIME_SLOTS.filter(
+              (slot) =>
+                slot.value === enrollment.class_time_slot ||
+                !bookedByOtherCourse.has(slot.value),
+            );
+            const selectedTimeSlot =
+              selectedTimeSlots[enrollmentKey] ?? enrollment.class_time_slot ?? "";
+            const isBooking = bookingTimeSlotFor === enrollmentKey;
+            const hasChanged =
+              Boolean(selectedTimeSlot) && selectedTimeSlot !== enrollment.class_time_slot;
+
+            return (
             <article
               key={enrollment.id}
               className="rounded-lg border border-slate-200 bg-slate-100 p-4 dark:border-slate-800 dark:bg-slate-950"
@@ -227,6 +307,65 @@ export default function StudentDashboard({
               <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-800">
                 <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-purple-500 transition-all" style={{ width: `${Math.min(100, Math.max(0, enrollment.progress_percentage))}%` }} />
               </div>
+              <div className="mt-4 rounded-lg border border-slate-200 bg-white/65 p-3 backdrop-blur-sm dark:border-slate-700 dark:bg-slate-900/65">
+                <div className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-blue-600 dark:text-blue-300" />
+                  <p className="text-sm font-bold text-slate-950 dark:text-white">
+                    Class time slot
+                  </p>
+                </div>
+                {enrollment.class_time_slot && (
+                  <p className="mt-2 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                    Booked: {studentClassTimeSlotLabel(enrollment.class_time_slot)}
+                  </p>
+                )}
+                <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                  <select
+                    value={selectedTimeSlot}
+                    onChange={(event) => {
+                      setSelectedTimeSlots((current) => ({
+                        ...current,
+                        [enrollmentKey]: event.target.value,
+                      }));
+                      setTimeSlotStatus((current) => ({
+                        ...current,
+                        [enrollmentKey]: "",
+                      }));
+                    }}
+                    disabled={isBooking || availableTimeSlots.length === 0}
+                    className={`${inputClass} min-w-0 flex-1`}
+                    aria-label={`Class time for ${enrollment.course_title}`}
+                  >
+                    <option value="">
+                      {availableTimeSlots.length === 0
+                        ? "No time slots available"
+                        : "Choose a time slot"}
+                    </option>
+                    {availableTimeSlots.map((slot) => (
+                      <option key={slot.value} value={slot.value}>
+                        {slot.label}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => void bookClassTimeSlot(enrollment.id)}
+                    disabled={isBooking || !hasChanged}
+                    className="rounded-lg bg-blue-600 px-4 py-3 text-sm font-bold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {isBooking
+                      ? "Booking..."
+                      : enrollment.class_time_slot
+                        ? "Update slot"
+                        : "Book slot"}
+                  </button>
+                </div>
+                {timeSlotStatus[enrollmentKey] && (
+                  <p className="mt-2 text-xs font-semibold text-slate-700 dark:text-slate-300" role="status">
+                    {timeSlotStatus[enrollmentKey]}
+                  </p>
+                )}
+              </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                 <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">
                   {enrollment.is_completed ? "Course completed" : "Keep going — your next lesson is waiting."}
@@ -237,7 +376,8 @@ export default function StudentDashboard({
               </div>
               <CourseJoinButton courseId={enrollment.course_id} />
             </article>
-          ))
+            );
+          })
         )}
       </div>
     </section>

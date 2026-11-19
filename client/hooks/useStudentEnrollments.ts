@@ -6,6 +6,7 @@ export type StudentEnrollment = {
   course_id: number | string;
   progress_percentage: number;
   is_completed: boolean;
+  class_time_slot: string | null;
   enrolled_at: string;
   completed_at: string | null;
   course_title: string;

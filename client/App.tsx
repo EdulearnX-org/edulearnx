@@ -73,6 +73,7 @@ const App = () => {
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <TwoFactorPrompt />
             <Suspense
               fallback={
                 <div

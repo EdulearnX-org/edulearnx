@@ -170,6 +170,8 @@ export const confirmTwoFactorSetup: RequestHandler=async(req,res)=>{
   let secret:string;try{secret=decryptTotpSecret(encrypted);}catch{return sendError(res,"Authenticator setup is unavailable. Contact support.",503);}
   if(!verifyTotp(secret,parsed.data.code))return sendError(res,"The code does not match. Check your phone and try again.",400);
   await query("UPDATE users SET two_factor_enabled=TRUE,two_factor_secret_enc=two_factor_pending_secret_enc,two_factor_pending_secret_enc=NULL,two_factor_enabled_at=CURRENT_TIMESTAMP,two_factor_last_verified_at=CURRENT_TIMESTAMP,two_factor_defer_used=TRUE WHERE id=$1",[req.user?.userId]);
+  await query("DELETE FROM auth_sessions WHERE user_id=$1",[String(req.user?.userId)]);
+  clearAuthCookie(res);
   return sendSuccess(res,{enabled:true},"Two-factor authentication is now enabled.");
  }catch{return sendError(res,"Unable to enable two-factor authentication.",503);}
 };

@@ -55,6 +55,8 @@ export default function TwoFactorPrompt() {
 
   const deadline = status?.required_at ? new Date(status.required_at).getTime() : 0;
   const deferredAndWaiting = Boolean(status?.defer_used && deadline > Date.now());
+  const deadlinePassed = Boolean(status && deadline > 0 && deadline <= Date.now());
+  const canPostpone = Boolean(status && !status.defer_used && deadline > Date.now());
 
   const start = async () => {
     setBusy(true); setError("");
@@ -96,11 +98,11 @@ export default function TwoFactorPrompt() {
           <p className="mt-3 text-sm leading-6 text-slate-600">Add a second sign-in step using any authenticator app that supports time-based one-time passwords (TOTP). This works with Google Authenticator, Microsoft Authenticator and other compatible apps.</p>
           <div className="mt-5 rounded-xl border border-edu-purple/20 bg-edu-purple/10 p-4 text-sm text-slate-700">
             <p className="font-semibold text-slate-900">How the setup period works</p>
-            <p className="mt-1">You can set it up now, or postpone the reminder once for three days. After the deadline, authenticator setup is required before using the portal.</p>
+            <p className="mt-1">{status?.defer_used ? "Your one-time three-day reminder has already been used. Complete setup to protect your account." : deadlinePassed ? "Your setup deadline has passed. Complete authenticator setup to continue using the portal." : "You can set it up now, or postpone the reminder once for three days. After the deadline, authenticator setup is required before using the portal."}</p>
           </div>
           {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <button disabled={busy} onClick={start} className="btn-primary mt-6 w-full">{busy ? "Preparing secure setup..." : "Set up authenticator"}</button>
-          {status && !status.defer_used && deadline > Date.now() && (
+          {canPostpone && (
             <button disabled={busy} onClick={defer} className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">Remind me in 3 days</button>
           )}
         </> : <>
@@ -129,7 +131,8 @@ export default function TwoFactorPrompt() {
           <form onSubmit={confirm} className="mt-5 space-y-3">
             <label htmlFor="two-factor-confirm-code" className="block text-sm font-semibold text-slate-900">Enter the six-digit code from your app</label>
             <input id="two-factor-confirm-code" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} inputMode="numeric" autoComplete="one-time-code" maxLength={6} placeholder="000000" className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-center text-xl tracking-[0.5em] text-slate-900" required />
-            <p className="text-xs leading-5 text-slate-500">Codes refresh about every 30 seconds. Wait for a fresh code if the current one is about to expire.</p>
+            <p className="text-xs leading-5 text-slate-500">You scan this QR code only once during setup. At each future sign-in, enter the current code from your app. Codes refresh about every 30 seconds.</p>
+            <p className="text-xs leading-5 text-slate-500">After you enable it, EduLearnX signs you out once. Sign in again with your password and the authenticator code.</p>
             {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
             <button disabled={busy || code.length !== 6} className="btn-primary w-full">{busy ? "Checking code..." : "Enable two-factor authentication"}</button>
             <button type="button" disabled={busy} onClick={() => { setSetup(null); setCode(""); setError(""); }} className="w-full rounded-xl border border-slate-300 px-4 py-3 text-sm font-semibold text-slate-700">Back</button>

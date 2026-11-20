@@ -49,6 +49,8 @@ export default function DashboardLayout({
   const [logoutError, setLogoutError] = useState("");
   const isStudent = userRole === "Student";
   const isAdmin = userRole === "Admin";
+  const isTeacher = userRole === "Teacher";
+  const isThemePortal = isStudent || isAdmin || isTeacher;
   const currentPortalUser = isStudent ? getCurrentPortalUser() : null;
   const { rewards, isLoading: rewardsLoading } = useStudentRewards(
     currentPortalUser?.id,
@@ -171,12 +173,12 @@ export default function DashboardLayout({
     setStudentThemeId(nextTheme);
   };
 
-  const themedStudentShell = (isStudent || isAdmin) && studentThemeEnabled;
+  const themedStudentShell = isThemePortal && studentThemeEnabled;
   const portalShellClass = themedStudentShell ? `portal-glass-shell student-theme-shell ${studentThemeId}` : "";
 
   return (
     <div className={`min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-white ${portalShellClass}`}>
-      {(isStudent || isAdmin) && <div aria-hidden="true" className={`student-theme-art ${studentThemeId} ${studentThemeEnabled ? "is-active" : ""}`} />}
+      {isThemePortal && <div aria-hidden="true" className={`student-theme-art ${studentThemeId} ${studentThemeEnabled ? "is-active" : ""}`} />}
       <button
         type="button"
         aria-label={menuOpen ? "Hide menu" : "Show menu"}

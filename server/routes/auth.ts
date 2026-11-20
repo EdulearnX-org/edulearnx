@@ -14,7 +14,7 @@ const passwordSchema = z.string().refine(isValidPassword, "Use at least 8 charac
 const loginSchema = z.object({email: emailSchema, password: z.string().min(1).max(1024)});
 const registerSchema = z.object({email: emailSchema, password: passwordSchema, full_name: z.string().trim().min(1).max(255)});
 const resetSchema = z.object({token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: passwordSchema});
-const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active";
+const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active, two_factor_enabled, two_factor_required_at";
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_MS = 30 * 60 * 1000;
 

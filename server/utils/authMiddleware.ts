@@ -33,7 +33,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   if (!token) return sendError(res, "Authentication required", 401);
   try {
     const result = await query(
-      `SELECT u.id, u.email, u.role, u.is_active
+      `SELECT u.id, u.email, u.role, u.is_active, u.two_factor_enabled, u.two_factor_required_at
        FROM auth_sessions s JOIN users u ON u.id::text = s.user_id
        WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP
          AND u.is_active IS DISTINCT FROM FALSE`,

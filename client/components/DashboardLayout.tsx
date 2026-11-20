@@ -48,6 +48,7 @@ export default function DashboardLayout({
   const menuOpen = isMobile ? mobileMenuOpen : desktopMenuOpen;
   const [logoutError, setLogoutError] = useState("");
   const isStudent = userRole === "Student";
+  const isAdmin = userRole === "Admin";
   const currentPortalUser = isStudent ? getCurrentPortalUser() : null;
   const { rewards, isLoading: rewardsLoading } = useStudentRewards(
     currentPortalUser?.id,
@@ -57,15 +58,17 @@ export default function DashboardLayout({
       return true;
     }
 
-    return window.localStorage.getItem("edulearnx-student-theme") !== "off";
+    const key = isAdmin ? "edulearnx-admin-theme" : "edulearnx-student-theme";
+    return window.localStorage.getItem(key) !== "off";
   });
   const [studentThemeId, setStudentThemeId] = useState<StudentThemeId>(() => {
     if (typeof window === "undefined") {
       return "night-study";
     }
 
-    const savedTheme = window.localStorage.getItem("edulearnx-student-theme-id");
-    const neonUnlocked = window.localStorage.getItem("edulearnx-neon-city-unlocked") === "true";
+    const key = isAdmin ? "edulearnx-admin-theme-id" : "edulearnx-student-theme-id";
+    const savedTheme = window.localStorage.getItem(key);
+    const neonUnlocked = isAdmin || window.localStorage.getItem("edulearnx-neon-city-unlocked") === "true";
     return savedTheme === "neon-city" && neonUnlocked ? "neon-city" : "night-study";
   });
   const [neonCityUnlocked, setNeonCityUnlocked] = useState(() => (
@@ -143,14 +146,15 @@ export default function DashboardLayout({
   const toggleStudentTheme = () => {
     setStudentThemeEnabled((enabled) => {
       const nextEnabled = !enabled;
-      window.localStorage.setItem("edulearnx-student-theme", nextEnabled ? "on" : "off");
+      const key = isAdmin ? "edulearnx-admin-theme" : "edulearnx-student-theme";
+      window.localStorage.setItem(key, nextEnabled ? "on" : "off");
       return nextEnabled;
     });
   };
 
   const availableThemeCoins = Math.max(0, rewards.totalCoins - themeCoinsSpent);
   const selectStudentTheme = (nextTheme: StudentThemeId) => {
-    if (nextTheme === "neon-city" && !neonCityUnlocked) {
+    if (nextTheme === "neon-city" && !neonCityUnlocked && !isAdmin) {
       if (rewardsLoading || availableThemeCoins < NEON_CITY_THEME_COST) {
         return;
       }
@@ -162,16 +166,17 @@ export default function DashboardLayout({
       setNeonCityUnlocked(true);
     }
 
-    window.localStorage.setItem("edulearnx-student-theme-id", nextTheme);
+    const key = isAdmin ? "edulearnx-admin-theme-id" : "edulearnx-student-theme-id";
+    window.localStorage.setItem(key, nextTheme);
     setStudentThemeId(nextTheme);
   };
 
-  const themedStudentShell = isStudent && studentThemeEnabled;
-  const studentShellClass = isStudent ? `student-theme-shell ${studentThemeId}` : "";
+  const themedStudentShell = (isStudent || isAdmin) && studentThemeEnabled;
+  const portalShellClass = themedStudentShell ? `portal-glass-shell student-theme-shell ${studentThemeId}` : "";
 
   return (
-    <div className={`min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-white ${studentShellClass}`}>
-      {isStudent && <div aria-hidden="true" className={`student-theme-art ${studentThemeId} ${studentThemeEnabled ? "is-active" : ""}`} />}
+    <div className={`min-h-screen bg-slate-100 text-slate-950 dark:bg-slate-950 dark:text-white ${portalShellClass}`}>
+      {(isStudent || isAdmin) && <div aria-hidden="true" className={`student-theme-art ${studentThemeId} ${studentThemeEnabled ? "is-active" : ""}`} />}
       <button
         type="button"
         aria-label={menuOpen ? "Hide menu" : "Show menu"}
@@ -241,10 +246,10 @@ export default function DashboardLayout({
               {logoutError}
             </p>
           )}
-          {isStudent && (
-            <div className={`student-theme-picker rounded-lg border p-3 ${themedStudentShell ? "border-white/10 bg-black/20" : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"}`}>
+          {(isStudent || isAdmin) && (
+            <div className={`student-theme-picker rounded-lg border p-3 ${themedStudentShell ? "border-white/15 bg-slate-950/55 backdrop-blur-xl" : "border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-950"}`}>
               <div className="flex items-center justify-between gap-3">
-                <span className={`text-xs font-extrabold uppercase tracking-[0.14em] ${themedStudentShell ? "text-slate-300" : "text-slate-500 dark:text-slate-400"}`}>Student themes</span>
+                <span className={`text-xs font-extrabold uppercase tracking-[0.14em] ${themedStudentShell ? "text-slate-100" : "text-slate-500 dark:text-slate-400"}`}>{isAdmin ? "Portal themes" : "Student themes"}</span>
                 <button
                   type="button"
                   onClick={toggleStudentTheme}
@@ -267,16 +272,16 @@ export default function DashboardLayout({
                 <button
                   type="button"
                   onClick={() => selectStudentTheme("neon-city")}
-                  disabled={!neonCityUnlocked && (rewardsLoading || availableThemeCoins < NEON_CITY_THEME_COST)}
+                  disabled={!isAdmin && !neonCityUnlocked && (rewardsLoading || availableThemeCoins < NEON_CITY_THEME_COST)}
                   className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-45 ${studentThemeId === "neon-city" ? themedStudentShell ? "bg-fuchsia-400 text-slate-950" : "bg-slate-950 text-white dark:bg-white dark:text-slate-950" : themedStudentShell ? "text-slate-200 hover:bg-white/10" : "text-slate-700 hover:bg-slate-200 dark:text-slate-200 dark:hover:bg-slate-800"}`}
                   aria-pressed={studentThemeId === "neon-city"}
                 >
                   <span className="flex items-center gap-2"><LockKeyhole className="h-4 w-4" /> Neon City</span>
-                  <span className="flex items-center gap-1 text-[11px] font-extrabold uppercase opacity-80">{neonCityUnlocked ? "Unlocked" : <><Coins className="h-3 w-3" /> 100</>}</span>
+                  <span className="flex items-center gap-1 text-[11px] font-extrabold uppercase opacity-80">{isAdmin || neonCityUnlocked ? "Available" : <><Coins className="h-3 w-3" /> 100</>}</span>
                 </button>
               </div>
               <p className={`mt-2 text-[11px] font-semibold ${themedStudentShell ? "text-slate-400" : "text-slate-500 dark:text-slate-400"}`} aria-live="polite">
-                {neonCityUnlocked ? "Neon City is unlocked on this account." : rewardsLoading ? "Checking your coin balance..." : `${availableThemeCoins} coins available · 100 needed`}
+                {isAdmin ? "All themes are available to administrators at no cost." : neonCityUnlocked ? "Neon City is unlocked on this account." : rewardsLoading ? "Checking your coin balance..." : `${availableThemeCoins} coins available · 100 needed`}
               </p>
             </div>
           )}

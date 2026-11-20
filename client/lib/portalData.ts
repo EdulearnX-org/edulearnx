@@ -8,6 +8,7 @@ import { readApiResponse } from "./api";
 
 export const ADMIN_EMAIL = PRIMARY_ADMIN_EMAIL;
 export type PortalRole = "admin" | "teacher" | "student";
+export type TwoFactorChallenge = { two_factor_required: true; challenge_token: string };
 export type PortalUser = {
   id: number | string;
   email: string;
@@ -17,6 +18,8 @@ export type PortalUser = {
   profile_image_url?: string;
   permissions?: AdminPermissions;
   signedInAt: string;
+  two_factor_enabled?: boolean;
+  two_factor_required_at?: string | null;
 };
 
 type AuthState = { user: PortalUser | null; isLoading: boolean; error: string };
@@ -82,6 +85,8 @@ async function profileFromResponse(profile: Record<string, unknown>): Promise<Po
     phone: typeof profile.phone === "string" ? profile.phone : undefined,
     profile_image_url: typeof profile.profile_image_url === "string" ? profile.profile_image_url : undefined,
     signedInAt: new Date().toISOString(),
+    two_factor_enabled: Boolean(profile.two_factor_enabled),
+    two_factor_required_at: typeof profile.two_factor_required_at === "string" ? profile.two_factor_required_at : null,
   };
   if (user.role === "admin") {
     const response = await fetch("/api/admin/permissions/me", { credentials: "same-origin", cache: "no-store" });
@@ -122,11 +127,11 @@ export function updateCurrentPortalUser(updates: Partial<PortalUser>) {
   return user;
 }
 
-async function establishSession(path: "login" | "register", body: unknown) {
+async function establishSession(path: "login" | "register", body: unknown): Promise<PortalUser | TwoFactorChallenge> {
   const generation = ++sessionGeneration;
   initialSessionRequest = undefined;
   const payload = await authRequest(path, body);
-  const user = await profileFromResponse(payload.data);
+  if (path === "login" && payload.data?.two_factor_required === true && typeof payload.data.challenge_token === "string") {\n    return { two_factor_required: true, challenge_token: payload.data.challenge_token };\n  }\n  const user = await profileFromResponse(payload.data);
   if (generation !== sessionGeneration) throw new Error("The account session changed. Please try again.");
   publish({ user, isLoading: false, error: "" });
   return user;

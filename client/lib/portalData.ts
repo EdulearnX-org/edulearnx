@@ -88,7 +88,8 @@ async function profileFromResponse(profile: Record<string, unknown>): Promise<Po
     two_factor_enabled: Boolean(profile.two_factor_enabled),
     two_factor_required_at: typeof profile.two_factor_required_at === "string" ? profile.two_factor_required_at : null,
   };
-  if (user.role === "admin") {
+  const enrollmentExpired = !user.two_factor_enabled && user.two_factor_required_at && new Date(user.two_factor_required_at).getTime() <= Date.now();
+  if (user.role === "admin" && !enrollmentExpired) {
     const response = await fetch("/api/admin/permissions/me", { credentials: "same-origin", cache: "no-store" });
     const payload = await readApiResponse(response);
     if (!response.ok || !payload.success) {
@@ -151,8 +152,10 @@ export async function completeTotpLogin(challengeToken: string, code: string) {
   return user;
 }
 
-export function registerPortal(email: string, password: string, fullName: string) {
-  return establishSession("register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() });
+export async function registerPortal(email: string, password: string, fullName: string): Promise<PortalUser> {
+  const result = await establishSession("register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() });
+  if ("two_factor_required" in result) throw new Error("Unexpected authenticator challenge during registration.");
+  return result;
 }
 
 export async function signOutPortal() {

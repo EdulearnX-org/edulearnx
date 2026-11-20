@@ -131,14 +131,24 @@ async function establishSession(path: "login" | "register", body: unknown): Prom
   const generation = ++sessionGeneration;
   initialSessionRequest = undefined;
   const payload = await authRequest(path, body);
-  if (path === "login" && payload.data?.two_factor_required === true && typeof payload.data.challenge_token === "string") {\n    return { two_factor_required: true, challenge_token: payload.data.challenge_token };\n  }\n  const user = await profileFromResponse(payload.data);
+  if (path === "login" && payload.data?.two_factor_required === true && typeof payload.data.challenge_token === "string") {
+    return { two_factor_required: true, challenge_token: payload.data.challenge_token };
+  }
+  const user = await profileFromResponse(payload.data);
   if (generation !== sessionGeneration) throw new Error("The account session changed. Please try again.");
   publish({ user, isLoading: false, error: "" });
   return user;
 }
 
-export function signInPortal(email: string, password: string) {
+export function signInPortal(email: string, password: string): Promise<PortalUser | TwoFactorChallenge> {
   return establishSession("login", { email: email.trim().toLowerCase(), password });
+}
+
+export async function completeTotpLogin(challengeToken: string, code: string) {
+  const payload = await authRequest("login/verify-totp", { challenge_token: challengeToken, code });
+  const user = await profileFromResponse(payload.data);
+  publish({ user, isLoading: false, error: "" });
+  return user;
 }
 
 export function registerPortal(email: string, password: string, fullName: string) {

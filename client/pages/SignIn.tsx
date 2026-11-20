@@ -73,7 +73,7 @@ export default function SignIn() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {challenge ? (
                 <div className="space-y-4">
-                  <div className="rounded-xl bg-edu-purple/10 p-4 text-sm text-slate-700">Two-factor authentication is enabled. Open Google Authenticator and enter the current six-digit EduLearnX code.</div>
+                  <div className="rounded-xl bg-edu-purple/10 p-4 text-sm text-slate-700">Two-factor authentication is enabled. Open the authenticator app you connected to EduLearnX and enter its current six-digit code. Codes refresh about every 30 seconds.</div>
                   <label htmlFor="authenticator-code" className="mb-2 block text-sm font-semibold text-slate-900">Authenticator code</label>
                   <input id="authenticator-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-4 text-center text-2xl tracking-[0.5em] text-slate-900 outline-none focus:border-edu-purple" required />
                   <button type="button" className="text-sm font-semibold text-edu-dark-blue" onClick={() => { setChallenge(null); setCode(""); setPassword(""); }}>Back to sign in</button>
@@ -124,11 +124,6 @@ export default function SignIn() {
                 </div>
               </div>
 
-              {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                  <p>{error}</p>
-                </div>
-              )}
 
               </>)}
               {!challenge && <div className="-mt-3 text-right">

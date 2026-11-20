@@ -136,14 +136,16 @@ export const verifyLoginTotp: RequestHandler=async(req,res)=>{
   const result=await transaction(async(client)=>{
    const found=await client.query(`SELECT c.user_id,c.attempts,u.two_factor_secret_enc,u.is_active FROM two_factor_login_challenges c JOIN users u ON u.id::text=c.user_id WHERE c.token_hash=$1 AND c.expires_at>CURRENT_TIMESTAMP FOR UPDATE OF c,u`,[hashAuthToken(parsed.data.challenge_token)]);
    const row=found.rows[0];if(!row||row.is_active===false)throw new AuthFailure("Verification expired. Sign in again.",401);
-   if(Number(row.attempts)>=5){await client.query("DELETE FROM two_factor_login_challenges WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);throw new AuthFailure("Too many incorrect codes. Sign in again.",429);}
+   if(Number(row.attempts)>=5){await client.query("DELETE FROM two_factor_login_challenges WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);return {tooMany:true};}
    await client.query("UPDATE two_factor_login_challenges SET attempts=attempts+1 WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);
    let valid=false;try{valid=verifyTotp(decryptTotpSecret(row.two_factor_secret_enc),parsed.data.code);}catch{throw new AuthFailure("Authenticator verification is temporarily unavailable.",503);}
-   if(!valid)throw new AuthFailure("That code is incorrect. Check Google Authenticator and try again.",401);
+   if(!valid)return {invalid:true};
    await client.query("DELETE FROM two_factor_login_challenges WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);
    await client.query("UPDATE users SET two_factor_last_verified_at=CURRENT_TIMESTAMP WHERE id=$1",[row.user_id]);
    return {userId:row.user_id,token:await createSession(client,row.user_id)};
   });
+  if ("tooMany" in result) return sendError(res,"Too many incorrect codes. Sign in again.",429);
+  if ("invalid" in result) return sendError(res,"That code is incorrect. Check Google Authenticator and try again.",401);
   setAuthCookie(res,result.token);
   const profile=await query(`SELECT ${profileColumns},two_factor_enabled,two_factor_required_at FROM users WHERE id=$1`,[result.userId]);
   return sendSuccess(res,publicProfile(profile.rows[0]),"Signed in");

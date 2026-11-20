@@ -467,3 +467,85 @@
     background-color: rgb(15 23 42);
   }
 }
+
+
+/* Shared translucent dashboard surfaces for student and admin portals. */
+@layer components {
+  .portal-glass-shell .student-theme-main {
+    background: linear-gradient(120deg, rgba(3, 8, 22, 0.68), rgba(3, 8, 22, 0.34));
+    color: #f8fafc;
+  }
+  .portal-glass-shell .student-theme-sidebar {
+    background: rgba(4, 9, 24, 0.78);
+    border-color: rgba(255, 255, 255, 0.16);
+    backdrop-filter: blur(22px) saturate(140%);
+  }
+  .portal-glass-shell .bg-white,
+  .portal-glass-shell .bg-slate-50,
+  .portal-glass-shell .bg-slate-100,
+  .portal-glass-shell .bg-slate-950,
+  .portal-glass-shell .bg-blue-50,
+  .portal-glass-shell .bg-amber-50,
+  .portal-glass-shell .bg-orange-50,
+  .portal-glass-shell .bg-emerald-50 {
+    background-color: rgba(9, 16, 35, 0.76) !important;
+    border-color: rgba(203, 213, 225, 0.25) !important;
+    color: #f8fafc !important;
+    backdrop-filter: blur(16px) saturate(135%);
+  }
+  .portal-glass-shell .text-slate-950,
+  .portal-glass-shell .text-slate-900,
+  .portal-glass-shell .text-slate-800,
+  .portal-glass-shell .text-slate-700,
+  .portal-glass-shell .text-slate-600,
+  .portal-glass-shell .text-blue-800,
+  .portal-glass-shell .text-amber-800,
+  .portal-glass-shell .text-orange-800,
+  .portal-glass-shell .text-emerald-800 {
+    color: #f1f5f9 !important;
+  }
+  .portal-glass-shell .text-slate-500,
+  .portal-glass-shell .text-slate-400,
+  .portal-glass-shell .text-blue-700,
+  .portal-glass-shell .text-amber-900,
+  .portal-glass-shell .text-orange-900,
+  .portal-glass-shell .text-emerald-700 {
+    color: #cbd5e1 !important;
+  }
+  .portal-glass-shell input,
+  .portal-glass-shell textarea,
+  .portal-glass-shell select {
+    color: #f8fafc !important;
+    background-color: rgba(2, 6, 23, 0.82) !important;
+    border-color: rgba(203, 213, 225, 0.38) !important;
+  }
+  .portal-glass-shell input::placeholder,
+  .portal-glass-shell textarea::placeholder {
+    color: #cbd5e1 !important;
+    opacity: 1;
+  }
+  .portal-glass-shell option { color: #f8fafc; background: #0f172a; }
+  .portal-glass-shell .student-theme-hero {
+    border-color: rgba(255, 255, 255, 0.24);
+    box-shadow: 0 20px 55px rgba(0, 0, 0, 0.28);
+  }
+  .portal-glass-shell .student-theme-picker { color: #f8fafc; }
+  .portal-glass-shell button:focus-visible,
+  .portal-glass-shell a:focus-visible,
+  .portal-glass-shell input:focus-visible,
+  .portal-glass-shell select:focus-visible,
+  .portal-glass-shell textarea:focus-visible {
+    outline: 3px solid #fbbf24;
+    outline-offset: 3px;
+  }
+  .portal-glass-shell.neon-city .student-theme-main {
+    background: linear-gradient(120deg, rgba(17, 5, 38, 0.70), rgba(8, 12, 35, 0.34));
+  }
+  .portal-glass-shell.neon-city .bg-white,
+  .portal-glass-shell.neon-city .bg-slate-50,
+  .portal-glass-shell.neon-city .bg-slate-100,
+  .portal-glass-shell.neon-city .bg-slate-950 {
+    background-color: rgba(18, 8, 42, 0.78) !important;
+    border-color: rgba(232, 121, 249, 0.30) !important;
+  }
+}

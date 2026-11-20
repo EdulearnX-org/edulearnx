@@ -64,6 +64,11 @@ export default function Footer() {
                   Careers
                 </Link>
               </li>
+              <li>
+                <Link to="/become-tutor" className="hover:text-white transition">
+                  Become a Tutor
+                </Link>
+              </li>
             </ul>
           </div>
 

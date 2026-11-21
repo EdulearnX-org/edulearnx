@@ -56,11 +56,11 @@ export default function TwoFactorPrompt() {
   const deadline = status?.required_at ? new Date(status.required_at).getTime() : 0;
   const deferredAndWaiting = Boolean(status?.defer_used && deadline > Date.now());
   const deadlinePassed = Boolean(status && deadline > 0 && deadline <= Date.now());
-  const canPostpone = Boolean(status && !status.defer_used && deadline > Date.now());
+  const canPostpone = status ? Boolean(!status.defer_used && deadline > Date.now()) : Boolean(error);
 
   const start = async () => {
     setBusy(true); setError("");
-    try { setSetup(await request("setup") as SetupPayload); setCode(""); }
+    try { setSetup(await request("setup", {}) as SetupPayload); setCode(""); }
     catch (err) { setError(err instanceof Error ? err.message : "Unable to start setup."); }
     finally { setBusy(false); }
   };

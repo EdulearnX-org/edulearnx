@@ -9,8 +9,8 @@ function response(){const res={status:vi.fn(),json:vi.fn()} as unknown as Respon
 beforeEach(()=>vi.mocked(query).mockReset());
 describe("database sessions",()=>{
  it("looks up only the token digest and reloads the current database role",async()=>{
-  vi.mocked(query).mockResolvedValueOnce({rows:[{id:7,email:"student@example.com",role:"student",is_active:true}]} as never);
-  const req={headers:{cookie:`auth_token=${token}`}} as Request;
+  vi.mocked(query).mockResolvedValueOnce({rows:[{id:7,email:"student@example.com",role:"student",is_active:true,two_factor_enabled:false,two_factor_required_at:null}]} as never);
+  const req={originalUrl:"/api/courses",headers:{cookie:`auth_token=${token}`}} as Request;
   const next=vi.fn();await requireAuth(req,response(),next);
   expect(query).toHaveBeenCalledWith(expect.stringContaining("expires_at > CURRENT_TIMESTAMP"),[crypto.createHash("sha256").update(token).digest("hex")]);
   expect(req.user).toEqual({userId:7,email:"student@example.com",role:"student"});expect(next).toHaveBeenCalledOnce();

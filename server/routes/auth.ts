@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { Router, type Request, type Response, type RequestHandler } from "express";
 import type { PoolClient } from "pg";
 import nodemailer from "nodemailer";
+import { rateLimit as expressRateLimit } from "express-rate-limit";
 import { z } from "zod";
 import pool, { query } from "../db/connection.js";
 import { sendError, sendSuccess } from "../utils/api.js";
@@ -17,6 +18,10 @@ const resetSchema = z.object({token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), pa
 const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active, two_factor_enabled, two_factor_required_at";
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_MS = 30 * 60 * 1000;
+const twoFactorStatusLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorSetupLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorConfirmLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorDeferLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
 
 function publicProfile(user: Record<string, unknown>) {
   const {id,email,full_name,role,profile_image_url,phone,is_active} = user;
@@ -310,10 +315,10 @@ authRouter.use((req,res,next)=>{
 authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
 authRouter.post("/login/verify-totp",rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
-authRouter.get("/two-factor/status",rateLimit("two-factor-status",60,15*60*1000),requireAuth,getTwoFactorStatus);
-authRouter.post("/two-factor/setup",rateLimit("two-factor-setup",10,60*60*1000),requireAuth,beginTwoFactorSetup);
-authRouter.post("/two-factor/confirm",rateLimit("two-factor-confirm",10,15*60*1000),requireAuth,confirmTwoFactorSetup);
-authRouter.post("/two-factor/defer",rateLimit("two-factor-defer",5,60*60*1000),requireAuth,deferTwoFactorSetup);
+authRouter.get("/two-factor/status",twoFactorStatusLimiter,requireAuth,getTwoFactorStatus);
+authRouter.post("/two-factor/setup",twoFactorSetupLimiter,requireAuth,beginTwoFactorSetup);
+authRouter.post("/two-factor/confirm",twoFactorConfirmLimiter,requireAuth,confirmTwoFactorSetup);
+authRouter.post("/two-factor/defer",twoFactorDeferLimiter,requireAuth,deferTwoFactorSetup);
 authRouter.get("/session",getSession);
 authRouter.post("/logout",logout);
 authRouter.post("/forgot-password",rateLimit("forgot-password",5,60*60*1000),forgotPassword);

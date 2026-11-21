@@ -5,7 +5,6 @@ import { readApiResponse } from "@/lib/api";
 import EduLearnXLogo from "@/components/EduLearnXLogo";
 
 type SetupPayload = { secret: string; otpauth_url: string; issuer: string; account: string };
-type Status = { enabled: boolean; required_at: string | null; defer_used: boolean };
 
 async function request(path: string, body?: unknown) {
   const response = await fetch(`/api/auth/two-factor/${path}`, {
@@ -22,7 +21,6 @@ async function request(path: string, body?: unknown) {
 
 export default function TwoFactorPrompt() {
   const { user } = usePortalAuth();
-  const [status, setStatus] = useState<Status | null>(null);
   const [setup, setSetup] = useState<SetupPayload | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
@@ -41,22 +39,13 @@ export default function TwoFactorPrompt() {
   }, [setup?.otpauth_url]);
 
   useEffect(() => {
-    let active = true;
-    if (!user || user.two_factor_enabled) {
-      setStatus(null); setSetup(null); setClosed(false); setError("");
-      return;
-    }
-    setStatus(null); setError("");
-    request("status")
-      .then((value: Status) => { if (active) setStatus(value); })
-      .catch((err) => { if (active) setError(err instanceof Error ? err.message : "Unable to check security setup."); });
-    return () => { active = false; };
+    // A dismissed reminder stays hidden only for this signed-in session.
+    // Signing out/in resets it, so it appears again until 2FA is enabled.
+    setSetup(null);
+    setCode("");
+    setError("");
+    setClosed(false);
   }, [user?.id, user?.two_factor_enabled]);
-
-  const deadline = status?.required_at ? new Date(status.required_at).getTime() : 0;
-  const deferredAndWaiting = Boolean(status?.defer_used && deadline > Date.now());
-  const deadlinePassed = Boolean(status && deadline > 0 && deadline <= Date.now());
-  const canPostpone = status ? Boolean(!status.defer_used && deadline > Date.now()) : Boolean(error);
 
   const start = async () => {
     setBusy(true); setError("");
@@ -72,12 +61,6 @@ export default function TwoFactorPrompt() {
     } catch (err) { setError(err instanceof Error ? err.message : "Unable to verify code."); }
     finally { setBusy(false); }
   };
-  const defer = async () => {
-    setBusy(true); setError("");
-    try { await request("defer", {}); setClosed(true); }
-    catch (err) { setError(err instanceof Error ? err.message : "Unable to postpone setup."); }
-    finally { setBusy(false); }
-  };
   const copySecret = async () => {
     try {
       await navigator.clipboard.writeText(setup!.secret);
@@ -87,24 +70,22 @@ export default function TwoFactorPrompt() {
     }
   };
 
-  if (!user || user.two_factor_enabled || deferredAndWaiting || closed) return null;
+  if (!user || user.two_factor_enabled || closed) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="two-factor-title">
-      <div className="max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl sm:p-8">
+      <div className="relative max-h-[92vh] w-full max-w-xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 text-slate-900 shadow-2xl sm:p-8">
+        <button type="button" onClick={() => setClosed(true)} aria-label="Close security reminder" title="Close reminder" className="absolute right-4 top-4 rounded-full p-2 text-xl leading-none text-slate-500 transition hover:bg-slate-100 hover:text-slate-900">×</button>
         <div className="mb-5 flex justify-center"><EduLearnXLogo /></div>
         {!setup ? <>
           <h2 id="two-factor-title" className="text-2xl font-bold text-slate-900">Protect your EduLearnX account</h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">Add a second sign-in step using any authenticator app that supports time-based one-time passwords (TOTP). This works with Google Authenticator, Microsoft Authenticator and other compatible apps.</p>
           <div className="mt-5 rounded-xl border border-edu-purple/20 bg-edu-purple/10 p-4 text-sm text-slate-700">
-            <p className="font-semibold text-slate-900">How the setup period works</p>
-            <p className="mt-1">{status?.defer_used ? "Your one-time three-day reminder has already been used. Complete setup to protect your account." : deadlinePassed ? "Your setup deadline has passed. Complete authenticator setup to continue using the portal." : "You can set it up now, or postpone the reminder once for three days. After the deadline, authenticator setup is required before using the portal."}</p>
+            <p className="font-semibold text-slate-900">A quick security reminder</p>
+            <p className="mt-1">You can set up an authenticator now, or close this reminder and continue to your portal. If you close it, we will show it again the next time you sign in until two-factor authentication is enabled.</p>
           </div>
           {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <button disabled={busy} onClick={start} className="btn-primary mt-6 w-full">{busy ? "Preparing secure setup..." : "Set up authenticator"}</button>
-          {canPostpone && (
-            <button disabled={busy} onClick={defer} className="mt-3 w-full rounded-xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 transition hover:bg-slate-50">Remind me in 3 days</button>
-          )}
         </> : <>
           <h2 id="two-factor-title" className="text-2xl font-bold text-slate-900">Connect an authenticator app</h2>
           <p className="mt-2 text-sm leading-6 text-slate-600">This QR code is generated on this device by EduLearnX. Your setup secret is not sent to a QR-code website or third-party service.</p>

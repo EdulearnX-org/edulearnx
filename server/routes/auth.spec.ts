@@ -11,7 +11,7 @@ import {getSession,login,register,logout,forgotPassword,resetPassword,changePass
 const db=vi.fn();const release=vi.fn();const sendMail=vi.fn();
 const token=crypto.randomBytes(32).toString("base64url");
 let passwordHash:string;
-const user={id:12,email:"admin@example.com",full_name:"Admin",role:"admin",is_active:true,phone:null,profile_image_url:null};
+const user={id:12,email:"admin@example.com",full_name:"Admin",role:"admin",is_active:true,phone:null,profile_image_url:null,two_factor_enabled:false,two_factor_required_at:null};
 function response(){const res={status:vi.fn(),json:vi.fn(),cookie:vi.fn(),clearCookie:vi.fn(),setHeader:vi.fn()} as unknown as Response;vi.mocked(res.status).mockReturnValue(res);return res;}
 function req(body:unknown,extra:Record<string,unknown>={}){return {body,headers:{},...extra} as Request;}
 beforeAll(async()=>{passwordHash=await hashPassword("existing-password");});

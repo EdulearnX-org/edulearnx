@@ -43,7 +43,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     if (!user || user.is_active === false) {
       return sendError(res, "Invalid or expired session", 401);
     }
-    const isTwoFactorSetupRoute = req.originalUrl.includes("/auth/two-factor/");
+    const isTwoFactorSetupRoute = (req.originalUrl || "").includes("/auth/two-factor/");
     if (!isTwoFactorSetupRoute && !user.two_factor_enabled && user.two_factor_required_at && new Date(user.two_factor_required_at).getTime() <= Date.now()) {
       return sendError(res, "Two-factor authentication setup is required before using the portal.", 403);
     }

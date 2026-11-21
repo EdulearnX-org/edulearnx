@@ -2,9 +2,9 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { PGlite } from "@electric-sql/pglite";
 import type { Request, RequestHandler, Response } from "express";
 
-vi.mock("../db/connection.js", () => ({ query: vi.fn(), isDatabaseConfigured: true }));
+vi.mock("../db/connection.js", () => ({ default: { connect: vi.fn() }, query: vi.fn(), isDatabaseConfigured: true }));
 
-import { query } from "../db/connection.js";
+import pool, { query } from "../db/connection.js";
 import { initializeDatabase } from "../db/schema.js";
 import { getCourseById, getCourses } from "./courses.js";
 import { updateBundle } from "./deals.js";
@@ -31,6 +31,7 @@ async function request(handler: RequestHandler, values: Partial<Request>) {
 describe("database data integrity", () => {
   beforeAll(async () => {
     vi.mocked(query).mockImplementation(async (sql, params) => db.query(sql, params) as never);
+    vi.mocked(pool.connect).mockImplementation(async () => ({ query: (sql: string, params?: unknown[]) => db.query(sql, params), release: vi.fn() }) as never);
     await initializeDatabase();
   }, 15_000);
 

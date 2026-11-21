@@ -145,7 +145,7 @@ export const verifyLoginTotp: RequestHandler=async(req,res)=>{
    return {userId:row.user_id,token:await createSession(client,row.user_id)};
   });
   if ("tooMany" in result) return sendError(res,"Too many incorrect codes. Sign in again.",429);
-  if ("invalid" in result) return sendError(res,"That code is incorrect. Check Google Authenticator and try again.",401);
+  if ("invalid" in result) return sendError(res,"That code is incorrect. Check your authenticator app and try again.",401);
   setAuthCookie(res,result.token);
   const profile=await query(`SELECT ${profileColumns},two_factor_enabled,two_factor_required_at FROM users WHERE id=$1`,[result.userId]);
   return sendSuccess(res,publicProfile(profile.rows[0]),"Signed in");

@@ -68,6 +68,7 @@ describe("student data access", () => {
 
   it("limits un-enrolled student course structure to preview lessons", async () => {
     vi.mocked(query).mockResolvedValueOnce({ rows: [] } as never);
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ id: 12 }] } as never);
     await expect(canAccessCourse(student, 12)).resolves.toBe("preview");
 
     vi.mocked(query).mockResolvedValueOnce({ rows: [{ id: 1 }] } as never);

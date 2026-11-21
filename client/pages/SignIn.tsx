@@ -1,6 +1,6 @@
 import Navbar from "@/components/Navbar";
 import EduLearnXLogo from "@/components/EduLearnXLogo";
-import { portalPathForRole, signInPortal } from "@/lib/portalData";
+import { completeTotpLogin, portalPathForRole, signInPortal, type TwoFactorChallenge } from "@/lib/portalData";
 import { ArrowRight, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -12,23 +12,28 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null);
+  const [code, setCode] = useState("");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setIsSubmitting(true);
-
     try {
-      const user = await signInPortal(email, password);
-      const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
-      navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(user.role), {
-        replace: true,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to sign in.");
-    } finally {
-      setIsSubmitting(false);
-    }
+      if (challenge) {
+        const user = await completeTotpLogin(challenge.challenge_token, code);
+        const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
+        navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(user.role), { replace: true });
+      } else {
+        const result = await signInPortal(email, password);
+        if ("two_factor_required" in result) setChallenge(result);
+        else {
+          const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
+          navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(result.role), { replace: true });
+        }
+      }
+    } catch (err) { setError(err instanceof Error ? err.message : "Unable to sign in."); }
+    finally { setIsSubmitting(false); }
   };
 
   return (
@@ -66,6 +71,14 @@ export default function SignIn() {
               <p role="status" className="mb-6 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">Password updated. Sign in with your new password.</p>
             )}
             <form onSubmit={handleSubmit} className="space-y-6">
+              {challenge ? (
+                <div className="space-y-4">
+                  <div className="rounded-xl bg-edu-purple/10 p-4 text-sm text-slate-700">Two-factor authentication is enabled. Open the authenticator app you connected to EduLearnX (Google Authenticator, Microsoft Authenticator or another TOTP-compatible app) and enter its current six-digit code. Codes refresh about every 30 seconds.</div>
+                  <label htmlFor="authenticator-code" className="mb-2 block text-sm font-semibold text-slate-900">Authenticator code</label>
+                  <input id="authenticator-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-4 text-center text-2xl tracking-[0.5em] text-slate-900 outline-none focus:border-edu-purple" required />
+                  <button type="button" className="text-sm font-semibold text-edu-dark-blue" onClick={() => { setChallenge(null); setCode(""); setPassword(""); }}>Back to sign in</button>
+                </div>
+              ) : (<>
               <div>
                 <label
                   htmlFor="email"
@@ -111,27 +124,24 @@ export default function SignIn() {
                 </div>
               </div>
 
-              {error && (
-                <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">
-                  <p>{error}</p>
-                </div>
-              )}
 
-              <div className="-mt-3 text-right">
+              </>)}
+              {!challenge && <div className="-mt-3 text-right">
                 <Link
                   to="/forgot-password"
                   className="text-sm font-semibold text-edu-dark-blue hover:text-edu-purple"
                 >
                   Forgot password?
                 </Link>
-              </div>
+              </div>}
 
+              {error && <div role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</div>}
               <button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={isSubmitting || (Boolean(challenge) && code.length !== 6)}
                 className="btn-primary flex w-full items-center justify-center gap-2 py-3 text-base"
               >
-                {isSubmitting ? "Signing In..." : "Sign In"}{" "}
+                {isSubmitting ? "Verifying..." : challenge ? "Verify Code" : "Sign In"}{" "}
                 <ArrowRight size={18} />
               </button>
             </form>

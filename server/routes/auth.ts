@@ -2,24 +2,31 @@ import crypto from "node:crypto";
 import { Router, type Request, type Response, type RequestHandler } from "express";
 import type { PoolClient } from "pg";
 import nodemailer from "nodemailer";
+import { rateLimit as expressRateLimit } from "express-rate-limit";
 import { z } from "zod";
 import pool, { query } from "../db/connection.js";
 import { sendError, sendSuccess } from "../utils/api.js";
 import { hashAuthToken, readSessionToken, requireAuth } from "../utils/authMiddleware.js";
 import { hashPassword, verifyPassword, isLegacyHash, isValidPassword } from "../utils/password.js";
+import { decryptTotpSecret, encryptTotpSecret, generateTotpSecret, totpUri, verifyTotp } from "../utils/totp.js";
 
 const emailSchema = z.string().trim().toLowerCase().email().max(255);
 const passwordSchema = z.string().refine(isValidPassword, "Use at least 8 characters and at most 72 UTF-8 bytes.");
 const loginSchema = z.object({email: emailSchema, password: z.string().min(1).max(1024)});
 const registerSchema = z.object({email: emailSchema, password: passwordSchema, full_name: z.string().trim().min(1).max(255)});
 const resetSchema = z.object({token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: passwordSchema});
-const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active";
+const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active, two_factor_enabled, two_factor_required_at";
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_MS = 30 * 60 * 1000;
+const twoFactorStatusLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 60, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorSetupLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorConfirmLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorDeferLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorLoginVerifyLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 
 function publicProfile(user: Record<string, unknown>) {
   const {id,email,full_name,role,profile_image_url,phone,is_active} = user;
-  return {id,email,full_name,role,profile_image_url,phone,is_active};
+  return {id,email,full_name,role,profile_image_url,phone,is_active,two_factor_enabled:Boolean(user.two_factor_enabled),two_factor_required_at:user.two_factor_required_at ?? null};
 }
 
 function setAuthCookie(res: Response, token: string) {
@@ -107,28 +114,79 @@ export const register: RequestHandler = async (req,res) => {
 };
 
 export const login: RequestHandler = async (req,res) => {
-  const parsed = loginSchema.safeParse(req.body);
-  if (!parsed.success) return sendError(res,"Email and password are required.",400);
-  try {
-    const result = await transaction(async(client)=>{
-      const existing = await client.query(`SELECT ${profileColumns}, password_hash FROM users WHERE lower(email)=$1 FOR UPDATE`,[parsed.data.email]);
-      const user = existing.rows.length === 1 ? existing.rows[0] : undefined;
-      if (!user || user.is_active === false || !(await verifyPassword(parsed.data.password,user.password_hash))) {
-        // Avoid a trivial hash-work timing distinction for unknown accounts.
-        if (!user) await hashPassword("unknown-account-timing-padding");
-        throw new AuthFailure("Invalid email or password.",401);
-      }
-      if (isLegacyHash(user.password_hash) && Buffer.byteLength(parsed.data.password,"utf8") <= 72) {
-        const upgraded = await hashPassword(parsed.data.password);
-        await client.query("UPDATE users SET password_hash=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2",[upgraded,user.id]);
-      }
-      const prior = readSessionToken(req);
-      if (prior) await client.query("DELETE FROM auth_sessions WHERE token_hash=$1",[hashAuthToken(prior)]);
-      return {user,token:await createSession(client,user.id)};
-    });
-    setAuthCookie(res,result.token);
-    return sendSuccess(res,publicProfile(result.user),"Signed in");
-  } catch(error) { return fail(res,error,"Unable to sign in."); }
+ const parsed=loginSchema.safeParse(req.body); if(!parsed.success)return sendError(res,"Email and password are required.",400);
+ try{
+  const result=await transaction(async(client)=>{
+   const found=await client.query(`SELECT ${profileColumns},password_hash,two_factor_enabled,two_factor_secret_enc,two_factor_required_at FROM users WHERE lower(email)=$1 FOR UPDATE`,[parsed.data.email]);
+   const user=found.rows[0];
+   if(!user||user.is_active===false||!(await verifyPassword(parsed.data.password,user.password_hash))){if(!user)await hashPassword("unknown-account-timing-padding");throw new AuthFailure("Invalid email or password.",401);}
+   if(isLegacyHash(user.password_hash)&&Buffer.byteLength(parsed.data.password,"utf8")<=72)await client.query("UPDATE users SET password_hash=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2",[await hashPassword(parsed.data.password),user.id]);
+   const prior=readSessionToken(req);if(prior)await client.query("DELETE FROM auth_sessions WHERE token_hash=$1",[hashAuthToken(prior)]);
+   if(user.two_factor_enabled){
+    const challenge=crypto.randomBytes(32).toString("base64url");
+    await client.query("DELETE FROM two_factor_login_challenges WHERE expires_at<=CURRENT_TIMESTAMP");
+    await client.query("INSERT INTO two_factor_login_challenges(token_hash,user_id,expires_at) VALUES($1,$2,$3)",[hashAuthToken(challenge),String(user.id),new Date(Date.now()+5*60*1000)]);
+    return {twoFactor:true,challenge};
+   }
+   return {twoFactor:false,user,token:await createSession(client,user.id)};
+  });
+  if(result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
+  setAuthCookie(res,result.token!);return sendSuccess(res,publicProfile(result.user),"Signed in");
+ }catch(error){return fail(res,error,"Unable to sign in.");}
+};
+
+export const verifyLoginTotp: RequestHandler=async(req,res)=>{
+ const parsed=z.object({challenge_token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().regex(/^\d{6}$/)}).safeParse(req.body);
+ if(!parsed.success)return sendError(res,"Enter the six-digit authenticator code.",400);
+ try{
+  const result=await transaction(async(client)=>{
+   const found=await client.query(`SELECT c.user_id,c.attempts,u.two_factor_secret_enc,u.is_active FROM two_factor_login_challenges c JOIN users u ON u.id::text=c.user_id WHERE c.token_hash=$1 AND c.expires_at>CURRENT_TIMESTAMP FOR UPDATE OF c,u`,[hashAuthToken(parsed.data.challenge_token)]);
+   const row=found.rows[0];if(!row||row.is_active===false)throw new AuthFailure("Verification expired. Sign in again.",401);
+   if(Number(row.attempts)>=5){await client.query("DELETE FROM two_factor_login_challenges WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);return {tooMany:true};}
+   await client.query("UPDATE two_factor_login_challenges SET attempts=attempts+1 WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);
+   let valid=false;try{valid=verifyTotp(decryptTotpSecret(row.two_factor_secret_enc),parsed.data.code);}catch{throw new AuthFailure("Authenticator verification is temporarily unavailable.",503);}
+   if(!valid)return {invalid:true};
+   await client.query("DELETE FROM two_factor_login_challenges WHERE token_hash=$1",[hashAuthToken(parsed.data.challenge_token)]);
+   await client.query("UPDATE users SET two_factor_last_verified_at=CURRENT_TIMESTAMP WHERE id=$1",[row.user_id]);
+   return {userId:row.user_id,token:await createSession(client,row.user_id)};
+  });
+  if ("tooMany" in result) return sendError(res,"Too many incorrect codes. Sign in again.",429);
+  if ("invalid" in result) return sendError(res,"That code is incorrect. Check your authenticator app and try again.",401);
+  setAuthCookie(res,result.token);
+  const profile=await query(`SELECT ${profileColumns},two_factor_enabled,two_factor_required_at FROM users WHERE id=$1`,[result.userId]);
+  return sendSuccess(res,publicProfile(profile.rows[0]),"Signed in");
+ }catch(error){return fail(res,error,"Unable to verify authenticator code.");}
+};
+
+export const getTwoFactorStatus: RequestHandler=async(req,res)=>{
+ try{const r=await query("SELECT two_factor_enabled,two_factor_required_at,two_factor_defer_used FROM users WHERE id=$1",[req.user?.userId]);if(!r.rows[0])return sendError(res,"Account not found.",404);return sendSuccess(res,{enabled:Boolean(r.rows[0].two_factor_enabled),required_at:r.rows[0].two_factor_required_at,defer_used:Boolean(r.rows[0].two_factor_defer_used)},"Two-factor status");}
+ catch{return sendError(res,"Unable to load two-factor status.",503);}
+};
+export const beginTwoFactorSetup: RequestHandler=async(req,res)=>{
+ try{
+  const r=await query("SELECT email,role,two_factor_enabled FROM users WHERE id=$1 AND is_active IS DISTINCT FROM FALSE",[req.user?.userId]);const u=r.rows[0];if(!u)return sendError(res,"Account not found.",404);if(u.two_factor_enabled)return sendError(res,"Two-factor authentication is already enabled.",409);
+  const secret=generateTotpSecret();await query("UPDATE users SET two_factor_pending_secret_enc=$1 WHERE id=$2",[encryptTotpSecret(secret),req.user?.userId]);
+  return sendSuccess(res,{secret,otpauth_url:totpUri(secret,u.email,u.role),issuer:"EduLearnX",account:u.email},"Add this account to Google Authenticator");
+ }catch(error){return fail(res,error,"Unable to start authenticator setup.");}
+};
+export const confirmTwoFactorSetup: RequestHandler=async(req,res)=>{
+ const parsed=z.object({code:z.string().regex(/^\d{6}$/)}).safeParse(req.body);if(!parsed.success)return sendError(res,"Enter the six-digit code shown in your authenticator app.",400);
+ try{
+  const r=await query("SELECT two_factor_pending_secret_enc FROM users WHERE id=$1 AND is_active IS DISTINCT FROM FALSE",[req.user?.userId]);const encrypted=r.rows[0]?.two_factor_pending_secret_enc;if(!encrypted)return sendError(res,"Start authenticator setup again.",400);
+  let secret:string;try{secret=decryptTotpSecret(encrypted);}catch{return sendError(res,"Authenticator setup is unavailable. Contact support.",503);}
+  if(!verifyTotp(secret,parsed.data.code))return sendError(res,"The code does not match. Check your phone and try again.",400);
+  await query("UPDATE users SET two_factor_enabled=TRUE,two_factor_secret_enc=two_factor_pending_secret_enc,two_factor_pending_secret_enc=NULL,two_factor_enabled_at=CURRENT_TIMESTAMP,two_factor_last_verified_at=CURRENT_TIMESTAMP,two_factor_defer_used=TRUE WHERE id=$1",[req.user?.userId]);
+  await query("DELETE FROM auth_sessions WHERE user_id=$1",[String(req.user?.userId)]);
+  clearAuthCookie(res);
+  return sendSuccess(res,{enabled:true},"Two-factor authentication is now enabled.");
+ }catch{return sendError(res,"Unable to enable two-factor authentication.",503);}
+};
+export const deferTwoFactorSetup: RequestHandler=async(req,res)=>{
+ try{
+  const r=await query(`UPDATE users SET two_factor_required_at=CURRENT_TIMESTAMP+INTERVAL '3 days',two_factor_defer_used=TRUE WHERE id=$1 AND two_factor_enabled=FALSE AND two_factor_defer_used=FALSE AND two_factor_required_at>CURRENT_TIMESTAMP RETURNING two_factor_required_at`,[req.user?.userId]);
+  if(!r.rows[0])return sendError(res,"The three-day postponement has already been used or the setup deadline has passed.",409);
+  return sendSuccess(res,{required_at:r.rows[0].two_factor_required_at},"Setup postponed for three days");
+ }catch{return sendError(res,"Unable to postpone setup.",503);}
 };
 
 export const getSession: RequestHandler = async(req,res)=>{
@@ -257,6 +315,11 @@ authRouter.use((req,res,next)=>{
 });
 authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
+authRouter.post("/login/verify-totp",twoFactorLoginVerifyLimiter,rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
+authRouter.get("/two-factor/status",twoFactorStatusLimiter,requireAuth,getTwoFactorStatus);
+authRouter.post("/two-factor/setup",twoFactorSetupLimiter,requireAuth,beginTwoFactorSetup);
+authRouter.post("/two-factor/confirm",twoFactorConfirmLimiter,requireAuth,confirmTwoFactorSetup);
+authRouter.post("/two-factor/defer",twoFactorDeferLimiter,requireAuth,deferTwoFactorSetup);
 authRouter.get("/session",getSession);
 authRouter.post("/logout",logout);
 authRouter.post("/forgot-password",rateLimit("forgot-password",5,60*60*1000),forgotPassword);

@@ -75,7 +75,7 @@ export function initializeServer() {
 
 // Keep this list in sync with schema changes used by authentication and the core flows.
 export const requiredSchemaColumns: Record<string, readonly string[]> = {
-  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions"],
+  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions", "two_factor_enabled", "two_factor_secret_enc", "two_factor_pending_secret_enc", "two_factor_required_at", "two_factor_defer_used"],
   courses: ["id", "instructor_id", "price_cents", "is_published", "meeting_id", "zoom_link"],
   enrollments: ["student_id", "course_id", "class_time_slot", "progress_percentage", "is_completed"],
   auth_sessions: ["token_hash", "user_id", "expires_at"],

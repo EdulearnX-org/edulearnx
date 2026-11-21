@@ -33,7 +33,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
   if (!token) return sendError(res, "Authentication required", 401);
   try {
     const result = await query(
-      `SELECT u.id, u.email, u.role, u.is_active
+      `SELECT u.id, u.email, u.role, u.is_active, u.two_factor_enabled, u.two_factor_required_at
        FROM auth_sessions s JOIN users u ON u.id::text = s.user_id
        WHERE s.token_hash = $1 AND s.expires_at > CURRENT_TIMESTAMP
          AND u.is_active IS DISTINCT FROM FALSE`,
@@ -42,6 +42,10 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
     const user = result.rows[0];
     if (!user || user.is_active === false) {
       return sendError(res, "Invalid or expired session", 401);
+    }
+    const isTwoFactorSetupRoute = (req.originalUrl || "").includes("/auth/two-factor/");
+    if (!isTwoFactorSetupRoute && !user.two_factor_enabled && user.two_factor_required_at && new Date(user.two_factor_required_at).getTime() <= Date.now()) {
+      return sendError(res, "Two-factor authentication setup is required before using the portal.", 403);
     }
     req.user = { userId: user.id, email: user.email, role: user.role };
     return next();

@@ -469,49 +469,79 @@
 }
 
 
-/* Shared translucent dashboard surfaces for student and admin portals. */
+/* Shared translucent surfaces across student, teacher, and admin portals. */
 @layer components {
   .portal-glass-shell .student-theme-main {
-    background: linear-gradient(120deg, rgba(3, 8, 22, 0.68), rgba(3, 8, 22, 0.34));
+    background: linear-gradient(120deg, rgba(3, 8, 22, 0.58), rgba(3, 8, 22, 0.22));
     color: #f8fafc;
   }
   .portal-glass-shell .student-theme-sidebar {
-    background: rgba(4, 9, 24, 0.78);
+    background: rgba(4, 9, 24, 0.72);
     border-color: rgba(255, 255, 255, 0.16);
-    backdrop-filter: blur(22px) saturate(140%);
+    backdrop-filter: blur(22px) saturate(145%);
   }
+
+  /* Make dashboard panels translucent instead of painting opaque rectangles over the theme art. */
   .portal-glass-shell .bg-white,
+  .portal-glass-shell .bg-white\/40,
+  .portal-glass-shell .bg-white\/50,
+  .portal-glass-shell .bg-white\/60,
+  .portal-glass-shell .bg-white\/65,
+  .portal-glass-shell .bg-white\/70,
+  .portal-glass-shell .bg-white\/80,
+  .portal-glass-shell .bg-white\/90,
   .portal-glass-shell .bg-slate-50,
   .portal-glass-shell .bg-slate-100,
+  .portal-glass-shell .bg-slate-200,
+  .portal-glass-shell .bg-slate-800,
+  .portal-glass-shell .bg-slate-900,
   .portal-glass-shell .bg-slate-950,
   .portal-glass-shell .bg-blue-50,
+  .portal-glass-shell .bg-indigo-50,
+  .portal-glass-shell .bg-purple-50,
+  .portal-glass-shell .bg-violet-50,
+  .portal-glass-shell .bg-fuchsia-50,
+  .portal-glass-shell .bg-pink-50,
+  .portal-glass-shell .bg-rose-50,
+  .portal-glass-shell .bg-red-50,
   .portal-glass-shell .bg-amber-50,
+  .portal-glass-shell .bg-yellow-50,
   .portal-glass-shell .bg-orange-50,
-  .portal-glass-shell .bg-emerald-50 {
-    background-color: rgba(9, 16, 35, 0.76) !important;
-    border-color: rgba(203, 213, 225, 0.25) !important;
+  .portal-glass-shell .bg-emerald-50,
+  .portal-glass-shell .bg-green-50,
+  .portal-glass-shell .bg-teal-50,
+  .portal-glass-shell .bg-cyan-50 {
+    background-color: rgba(7, 14, 32, 0.70) !important;
+    border-color: rgba(203, 213, 225, 0.24) !important;
     color: #f8fafc !important;
-    backdrop-filter: blur(16px) saturate(135%);
+    backdrop-filter: blur(16px) saturate(145%);
   }
+
   .portal-glass-shell .text-slate-950,
   .portal-glass-shell .text-slate-900,
   .portal-glass-shell .text-slate-800,
   .portal-glass-shell .text-slate-700,
   .portal-glass-shell .text-slate-600,
   .portal-glass-shell .text-blue-800,
+  .portal-glass-shell .text-indigo-800,
+  .portal-glass-shell .text-purple-800,
   .portal-glass-shell .text-amber-800,
   .portal-glass-shell .text-orange-800,
-  .portal-glass-shell .text-emerald-800 {
+  .portal-glass-shell .text-emerald-800,
+  .portal-glass-shell .text-green-800 {
     color: #f1f5f9 !important;
   }
   .portal-glass-shell .text-slate-500,
   .portal-glass-shell .text-slate-400,
   .portal-glass-shell .text-blue-700,
+  .portal-glass-shell .text-indigo-700,
   .portal-glass-shell .text-amber-900,
   .portal-glass-shell .text-orange-900,
-  .portal-glass-shell .text-emerald-700 {
+  .portal-glass-shell .text-emerald-700,
+  .portal-glass-shell .text-green-700 {
     color: #cbd5e1 !important;
   }
+
   .portal-glass-shell input,
   .portal-glass-shell textarea,
   .portal-glass-shell select {
@@ -539,13 +569,15 @@
     outline-offset: 3px;
   }
   .portal-glass-shell.neon-city .student-theme-main {
-    background: linear-gradient(120deg, rgba(17, 5, 38, 0.70), rgba(8, 12, 35, 0.34));
+    background: linear-gradient(120deg, rgba(17, 5, 38, 0.58), rgba(8, 12, 35, 0.22));
   }
   .portal-glass-shell.neon-city .bg-white,
   .portal-glass-shell.neon-city .bg-slate-50,
   .portal-glass-shell.neon-city .bg-slate-100,
+  .portal-glass-shell.neon-city .bg-slate-800,
+  .portal-glass-shell.neon-city .bg-slate-900,
   .portal-glass-shell.neon-city .bg-slate-950 {
-    background-color: rgba(18, 8, 42, 0.78) !important;
-    border-color: rgba(232, 121, 249, 0.30) !important;
+    background-color: rgba(18, 8, 42, 0.72) !important;
+    border-color: rgba(232, 121, 249, 0.28) !important;
   }
 }

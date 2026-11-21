@@ -76,8 +76,9 @@ describe("cookie account sessions", () => {
       .mockResolvedValueOnce(response({ success: true, data: { ...profile, role: "admin" } }))
       .mockResolvedValueOnce(response({ success: true, data: { permissions: { courses: true, overview: false } } })));
     const auth = await import("./portalData");
-    const user = await auth.signInPortal(profile.email, "password123");
-    expect(auth.portalPathForRole(user.role)).toBe("/admin/courses");
+    const result = await auth.signInPortal(profile.email, "password123");
+    if ("two_factor_required" in result) throw new Error("Unexpected two-factor challenge in this test.");
+    expect(auth.portalPathForRole(result.role)).toBe("/admin/courses");
   });
 
   it("keeps a session visible when the server fails to log it out", async () => {

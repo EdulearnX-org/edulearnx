@@ -22,6 +22,7 @@ const twoFactorStatusLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limi
 const twoFactorSetupLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
 const twoFactorConfirmLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: "draft-8", legacyHeaders: false });
 const twoFactorDeferLimiter = expressRateLimit({ windowMs: 60 * 60 * 1000, limit: 5, standardHeaders: "draft-8", legacyHeaders: false });
+const twoFactorLoginVerifyLimiter = expressRateLimit({ windowMs: 15 * 60 * 1000, limit: 20, standardHeaders: "draft-8", legacyHeaders: false });
 
 function publicProfile(user: Record<string, unknown>) {
   const {id,email,full_name,role,profile_image_url,phone,is_active} = user;
@@ -314,7 +315,7 @@ authRouter.use((req,res,next)=>{
 });
 authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
-authRouter.post("/login/verify-totp",rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
+authRouter.post("/login/verify-totp",twoFactorLoginVerifyLimiter,rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
 authRouter.get("/two-factor/status",twoFactorStatusLimiter,requireAuth,getTwoFactorStatus);
 authRouter.post("/two-factor/setup",twoFactorSetupLimiter,requireAuth,beginTwoFactorSetup);
 authRouter.post("/two-factor/confirm",twoFactorConfirmLimiter,requireAuth,confirmTwoFactorSetup);

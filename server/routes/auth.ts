@@ -310,10 +310,10 @@ authRouter.use((req,res,next)=>{
 authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
 authRouter.post("/login/verify-totp",rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
-authRouter.get("/two-factor/status",requireAuth,getTwoFactorStatus);
-authRouter.post("/two-factor/setup",requireAuth,beginTwoFactorSetup);
-authRouter.post("/two-factor/confirm",requireAuth,confirmTwoFactorSetup);
-authRouter.post("/two-factor/defer",requireAuth,deferTwoFactorSetup);
+authRouter.get("/two-factor/status",rateLimit("two-factor-status",60,15*60*1000),requireAuth,getTwoFactorStatus);
+authRouter.post("/two-factor/setup",rateLimit("two-factor-setup",10,60*60*1000),requireAuth,beginTwoFactorSetup);
+authRouter.post("/two-factor/confirm",rateLimit("two-factor-confirm",10,15*60*1000),requireAuth,confirmTwoFactorSetup);
+authRouter.post("/two-factor/defer",rateLimit("two-factor-defer",5,60*60*1000),requireAuth,deferTwoFactorSetup);
 authRouter.get("/session",getSession);
 authRouter.post("/logout",logout);
 authRouter.post("/forgot-password",rateLimit("forgot-password",5,60*60*1000),forgotPassword);

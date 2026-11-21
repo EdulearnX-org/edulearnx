@@ -31,7 +31,7 @@ async function request(handler: RequestHandler, values: Partial<Request>) {
 describe("database data integrity", () => {
   beforeAll(async () => {
     vi.mocked(query).mockImplementation(async (sql, params) => db.query(sql, params) as never);
-    vi.mocked(pool.connect).mockImplementation(async () => ({ query: (sql: string, params?: unknown[]) => db.query(sql, params), release: vi.fn() }) as never);
+    vi.mocked(pool.connect).mockImplementation(async () => ({ query: (sql: string, params?: unknown[]) => /^(BEGIN|COMMIT|ROLLBACK)$/i.test(sql.trim()) ? { rows: [] } : db.query(sql, params), release: vi.fn() }) as never);
     await initializeDatabase();
   }, 15_000);
 
@@ -61,15 +61,16 @@ describe("database data integrity", () => {
   });
 
   it("includes the actual price in course details used for checkout", async () => {
-    const response = await request(getCourseById, { params: { id: "201" } });
+    const response = await request(getCourseById, { params: { id: "201" }, user: { userId: 101, email: "student@example.com", role: "student" } });
     expect(response.data.price_cents).toBe(3999);
     expect((response.data.price_cents / 100).toFixed(2)).toBe("39.99");
   });
 
   it("keeps private Zoom links out of public course responses", async () => {
     await db.exec("UPDATE courses SET zoom_link='https://zoom.us/j/123?pwd=private' WHERE id=201");
-    const list = await request(getCourses, {});
-    const detail = await request(getCourseById, { params: { id: "201" } });
+    const actor = { userId: 101, email: "student@example.com", role: "student" };
+    const list = await request(getCourses, { user: actor });
+    const detail = await request(getCourseById, { params: { id: "201" }, user: actor });
     expect(list.data[0]).not.toHaveProperty("zoom_link");
     expect(detail.data).not.toHaveProperty("zoom_link");
     expect(JSON.stringify([list, detail])).not.toContain("pwd=private");

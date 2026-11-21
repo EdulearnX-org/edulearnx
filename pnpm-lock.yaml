@@ -128,6 +128,9 @@ importers:
       express:
         specifier: ^5.2.1
         version: 5.2.1(supports-color@7.2.0)
+      express-rate-limit:
+        specifier: ^8.7.1
+        version: 8.7.1
       https-proxy-agent:
         specifier: ^9.1.0
         version: 9.1.0(supports-color@7.2.0)

@@ -77,7 +77,7 @@ describe("cookie account sessions", () => {
       .mockResolvedValueOnce(response({ success: true, data: { permissions: { courses: true, overview: false } } })));
     const auth = await import("./portalData");
     const result = await auth.signInPortal(profile.email, "password123");
-    if ("two_factor_required" in result) throw new Error("Unexpected two-factor challenge in this test.");
+    if ("two_factor_required" in result || "email_otp_required" in result) throw new Error("Unexpected login challenge in this test.");
     expect(auth.portalPathForRole(result.role)).toBe("/admin/courses");
   });
 

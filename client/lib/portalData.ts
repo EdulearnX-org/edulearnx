@@ -137,6 +137,12 @@ async function establishSession(path: "login" | "register", body: unknown): Prom
   if (path === "login" && payload.data?.two_factor_required === true && typeof payload.data.challenge_token === "string") {
     return { two_factor_required: true, challenge_token: payload.data.challenge_token };
   }
+  if (path === "login" && payload.data?.email_otp_required === true && typeof payload.data.challenge_token === "string") {
+    return { email_otp_required: true, challenge_token: payload.data.challenge_token, email: String(payload.data.email ?? "") };
+  }
+  if (path === "register" && payload.data?.email_verification_required === true && typeof payload.data.challenge_token === "string") {
+    return { email_verification_required: true, challenge_token: payload.data.challenge_token, email: String(payload.data.email ?? "") };
+  }
   const user = await profileFromResponse(payload.data);
   if (generation !== sessionGeneration) throw new Error("The account session changed. Please try again.");
   publish({ user, isLoading: false, error: "" });
@@ -154,10 +160,24 @@ export async function completeTotpLogin(challengeToken: string, code: string) {
   return user;
 }
 
-export async function registerPortal(email: string, password: string, fullName: string): Promise<PortalUser> {
+export async function registerPortal(email: string, password: string, fullName: string): Promise<RegistrationEmailChallenge> {
   const result = await establishSession("register", { email: email.trim().toLowerCase(), password, full_name: fullName.trim() });
-  if ("two_factor_required" in result) throw new Error("Unexpected authenticator challenge during registration.");
+  if (!("email_verification_required" in result)) throw new Error("The server did not start email verification.");
   return result;
+}
+
+export async function completeRegistrationEmailOtp(challengeToken: string, code: string): Promise<PortalUser> {
+  const payload = await authRequest("register/verify-email-otp", { challenge_token: challengeToken, code });
+  const user = await profileFromResponse(payload.data);
+  publish({ user, isLoading: false, error: "" });
+  return user;
+}
+
+export async function completeEmailOtpLogin(challengeToken: string, code: string): Promise<PortalUser> {
+  const payload = await authRequest("login/verify-email-otp", { challenge_token: challengeToken, code });
+  const user = await profileFromResponse(payload.data);
+  publish({ user, isLoading: false, error: "" });
+  return user;
 }
 
 export async function signOutPortal() {

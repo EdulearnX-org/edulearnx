@@ -89,6 +89,7 @@ export const requiredSchemaColumns: Record<string, readonly string[]> = {
   upload_intents: ["id", "token_hash", "owner_id", "purpose", "bucket", "object_path", "content_type", "byte_size", "status", "expires_at"],
   request_limits: ["key_hash", "attempts", "expires_at"],
   app_migrations: ["version"],
+  app_settings: ["setting_key", "setting_value", "updated_at", "updated_by"],
 };
 
 export async function hasRequiredSchema() {
@@ -102,7 +103,7 @@ export async function hasRequiredSchema() {
     if (requiredColumns.some(column => !columns.has(`${table}.${column}`))) return false;
   }
   const migrations = await query("SELECT version FROM app_migrations WHERE version = ANY($1::text[])", [["20261031_audit_repairs", "20261123_student_email_otp", "20261123_student_otp_preferences"]]);
-  return migrations.rows.length === 2;
+  return migrations.rows.length === 3;
 }
 
 function getCorsOrigin() {

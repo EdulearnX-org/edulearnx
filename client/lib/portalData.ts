@@ -8,7 +8,7 @@ import { readApiResponse } from "./api";
 
 export const ADMIN_EMAIL = PRIMARY_ADMIN_EMAIL;
 export type PortalRole = "admin" | "teacher" | "student";
-export type TwoFactorChallenge = { two_factor_required: true; challenge_token: string };
+export type TwoFactorChallenge = { two_factor_required: true; challenge_token: string };\nexport type EmailOtpChallenge = { email_otp_required: true; challenge_token: string; email?: string };\nexport type RegistrationEmailChallenge = { email_verification_required: true; challenge_token: string; email: string };
 export type PortalUser = {
   id: number | string;
   email: string;
@@ -128,7 +128,7 @@ export function updateCurrentPortalUser(updates: Partial<PortalUser>) {
   return user;
 }
 
-async function establishSession(path: "login" | "register", body: unknown): Promise<PortalUser | TwoFactorChallenge> {
+async function establishSession(path: "login" | "register", body: unknown): Promise<PortalUser | TwoFactorChallenge | EmailOtpChallenge | RegistrationEmailChallenge> {
   const generation = ++sessionGeneration;
   initialSessionRequest = undefined;
   const payload = await authRequest(path, body);
@@ -141,7 +141,7 @@ async function establishSession(path: "login" | "register", body: unknown): Prom
   return user;
 }
 
-export function signInPortal(email: string, password: string): Promise<PortalUser | TwoFactorChallenge> {
+export function signInPortal(email: string, password: string): Promise<PortalUser | TwoFactorChallenge | EmailOtpChallenge> {
   return establishSession("login", { email: email.trim().toLowerCase(), password });
 }
 

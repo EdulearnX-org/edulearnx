@@ -134,10 +134,10 @@ export const verifyRegistrationEmailOtp: RequestHandler = async(req,res) => {
       const found=await client.query("SELECT * FROM pending_student_registrations WHERE token_hash=$1 AND expires_at>CURRENT_TIMESTAMP FOR UPDATE",[hash]);
       const pending=found.rows[0];
       if(!pending)throw new AuthFailure("Verification code expired. Please register again.",400);
-      if(Number(pending.attempts)>=5){await client.query("DELETE FROM pending_student_registrations WHERE token_hash=$1",[hash]);throw new AuthFailure("Too many incorrect codes. Please register again.",429);}
+      if(Number(pending.attempts)>=5){await client.query("DELETE FROM pending_student_registrations WHERE token_hash=$1",[hash]);return {tooMany:true};}
       await client.query("UPDATE pending_student_registrations SET attempts=attempts+1 WHERE token_hash=$1",[hash]);
       const actual=hashAuthToken(parsed.data.challenge_token+":"+parsed.data.code);
-      if(actual!==pending.code_hash)throw new AuthFailure("That verification code is incorrect.",401);
+      if(actual!==pending.code_hash)return {invalid:true};
       const created=await client.query(
         `INSERT INTO users(email,password_hash,full_name,name,role,email_verified_at)
          VALUES($1,$2,$3,$3,'student',CURRENT_TIMESTAMP) ON CONFLICT DO NOTHING RETURNING ${profileColumns}`,
@@ -146,6 +146,8 @@ export const verifyRegistrationEmailOtp: RequestHandler = async(req,res) => {
       await client.query("DELETE FROM pending_student_registrations WHERE token_hash=$1",[hash]);
       return {user:created.rows[0],token:await createSession(client,created.rows[0].id)};
     });
+    if("tooMany" in result)return sendError(res,"Too many incorrect codes. Please register again.",429);
+    if("invalid" in result)return sendError(res,"That verification code is incorrect.",401);
     setAuthCookie(res,result.token);
     return sendSuccess(res,publicProfile(result.user),"Email verified. Your account is ready.",201);
   } catch(error){return fail(res,error,"Unable to verify your email.");}
@@ -304,7 +306,7 @@ function mailConfig() {
   const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;
   const SMTP_USER = process.env.SMTP_USER;
   const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
-  const APP_URL = process.env.APP_URL;
+  const APP_URL = process.env.APP_URL || process.env.URL;
   const port = Number(process.env.SMTP_PORT || 587);
   if (!SMTP_HOST || !SMTP_FROM || !APP_URL || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {
     throw new AuthFailure("Password reset email is not configured. Contact support.",503);

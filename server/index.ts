@@ -34,11 +34,16 @@ import {
   requirePrimaryAdmin,
 } from "./utils/adminPermissionMiddleware.js";
 
-// Production schema changes are applied through reviewed migrations, never
-// from serverless function startup. Multiple cold starts can run concurrently,
-// so running the legacy DDL bootstrap here can race (DROP/ADD constraints).
+// Schema changes are applied through reviewed migrations, never from a
+// serverless function startup. Netlify's Lambda runtime does not guarantee
+// NODE_ENV=production, and concurrent cold starts can race on legacy DDL.
+const isServerlessRuntime = Boolean(
+  process.env.VERCEL ||
+  process.env.NETLIFY ||
+  process.env.AWS_LAMBDA_FUNCTION_NAME
+);
 const shouldInitializeDatabase =
-  !process.env.VERCEL &&
+  !isServerlessRuntime &&
   process.env.NODE_ENV !== "test" &&
   process.env.NODE_ENV !== "production";
 let initializationPromise: Promise<void> | undefined;

@@ -53,6 +53,9 @@ export default function AdminSettings() {
   const [savingCoAdminId, setSavingCoAdminId] = useState<number | null>(null);
   const [paymentSettings, setPaymentSettings] = useState(emptyPaymentSettings);
   const [paymentStatus, setPaymentStatus] = useState("");
+  const [studentOtpRequired, setStudentOtpRequired] = useState(false);
+  const [studentOtpStatus, setStudentOtpStatus] = useState("");
+  const [savingStudentOtp, setSavingStudentOtp] = useState(false);
   useEffect(() => {
     if (!isPrimaryAdmin(currentUser?.email ?? "")) return;
 

@@ -90,6 +90,30 @@ export default function StudentDashboard({
   const [selectedTimeSlots, setSelectedTimeSlots] = useState<Record<string, string>>({});
   const [bookingTimeSlotFor, setBookingTimeSlotFor] = useState<string | null>(null);
   const [timeSlotStatus, setTimeSlotStatus] = useState<Record<string, string>>({});
+  const [emailOtpEnabled, setEmailOtpEnabled] = useState(true);
+  const [emailOtpRequired, setEmailOtpRequired] = useState(false);
+  const [otpSettingsStatus, setOtpSettingsStatus] = useState("Loading security settings...");
+  const [savingOtpSettings, setSavingOtpSettings] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/student/security-settings").then(r => r.json()).then(p => {
+      if (!p.success || !p.data) throw new Error(p.error || "Unable to load security settings.");
+      setEmailOtpEnabled(p.data.email_otp_enabled);
+      setEmailOtpRequired(p.data.admin_required);
+      setOtpSettingsStatus("");
+    }).catch(e => setOtpSettingsStatus(e instanceof Error ? e.message : "Unable to load security settings."));
+  }, []);
+
+  const saveEmailOtpPreference = async (enabled: boolean) => {
+    setSavingOtpSettings(true); setOtpSettingsStatus("");
+    try {
+      const response = await fetch("/api/student/security-settings", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({email_otp_enabled:enabled})});
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to save preference.");
+      setEmailOtpEnabled(payload.data.email_otp_enabled); setOtpSettingsStatus("Security preference saved.");
+    } catch(e) { setOtpSettingsStatus(e instanceof Error ? e.message : "Unable to save preference."); }
+    finally { setSavingOtpSettings(false); }
+  };
 
   useEffect(() => {
     if (!currentUser?.id) {

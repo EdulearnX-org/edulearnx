@@ -203,13 +203,14 @@ export const verifyLoginEmailOtp: RequestHandler=async(req,res)=>{
    const hash=hashAuthToken(parsed.data.challenge_token);
    const found=await client.query(`SELECT c.user_id,c.code_hash,c.attempts,u.role,u.is_active FROM email_otp_challenges c JOIN users u ON u.id::text=c.user_id WHERE c.token_hash=$1 AND c.purpose='login' AND c.expires_at>CURRENT_TIMESTAMP FOR UPDATE OF c,u`,[hash]);
    const row=found.rows[0];if(!row||row.is_active===false||row.role!=="student")throw new AuthFailure("This sign-in code expired. Sign in again.",401);
-   if(Number(row.attempts)>=5){await client.query("DELETE FROM email_otp_challenges WHERE token_hash=$1",[hash]);throw new AuthFailure("Too many incorrect codes. Sign in again.",429);}
+   if(Number(row.attempts)>=5){await client.query("DELETE FROM email_otp_challenges WHERE token_hash=$1",[hash]);return {tooMany:true};}
    await client.query("UPDATE email_otp_challenges SET attempts=attempts+1 WHERE token_hash=$1",[hash]);
    if(hashAuthToken(parsed.data.challenge_token+":"+parsed.data.code)!==row.code_hash)return {invalid:true};
    await client.query("DELETE FROM email_otp_challenges WHERE token_hash=$1",[hash]);
    await client.query("UPDATE users SET email_verified_at=COALESCE(email_verified_at,CURRENT_TIMESTAMP) WHERE id=$1",[row.user_id]);
    return {userId:row.user_id,token:await createSession(client,row.user_id)};
   });
+  if("tooMany" in result)return sendError(res,"Too many incorrect codes. Sign in again.",429);
   if("invalid" in result)return sendError(res,"That code is incorrect. Try again.",401);
   setAuthCookie(res,result.token);
   const profile=await query(`SELECT ${profileColumns} FROM users WHERE id=$1`,[result.userId]);

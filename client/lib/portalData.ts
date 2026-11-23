@@ -8,7 +8,9 @@ import { readApiResponse } from "./api";
 
 export const ADMIN_EMAIL = PRIMARY_ADMIN_EMAIL;
 export type PortalRole = "admin" | "teacher" | "student";
-export type TwoFactorChallenge = { two_factor_required: true; challenge_token: string };\nexport type EmailOtpChallenge = { email_otp_required: true; challenge_token: string; email?: string };\nexport type RegistrationEmailChallenge = { email_verification_required: true; challenge_token: string; email: string };
+export type TwoFactorChallenge = { two_factor_required: true; challenge_token: string };
+export type EmailOtpChallenge = { email_otp_required: true; challenge_token: string; email?: string };
+export type RegistrationEmailChallenge = { email_verification_required: true; challenge_token: string; email: string };
 export type PortalUser = {
   id: number | string;
   email: string;

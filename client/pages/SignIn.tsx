@@ -1,6 +1,6 @@
 import Navbar from "@/components/Navbar";
 import EduLearnXLogo from "@/components/EduLearnXLogo";
-import { completeTotpLogin, portalPathForRole, signInPortal, type TwoFactorChallenge } from "@/lib/portalData";
+import { completeEmailOtpLogin, completeTotpLogin, portalPathForRole, signInPortal, type EmailOtpChallenge, type TwoFactorChallenge } from "@/lib/portalData";
 import { ArrowRight, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -12,7 +12,7 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null);
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | EmailOtpChallenge | null>(null);
   const [code, setCode] = useState("");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -21,12 +21,14 @@ export default function SignIn() {
     setIsSubmitting(true);
     try {
       if (challenge) {
-        const user = await completeTotpLogin(challenge.challenge_token, code);
+        const user = "email_otp_required" in challenge
+          ? await completeEmailOtpLogin(challenge.challenge_token, code)
+          : await completeTotpLogin(challenge.challenge_token, code);
         const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
         navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(user.role), { replace: true });
       } else {
         const result = await signInPortal(email, password);
-        if ("two_factor_required" in result) setChallenge(result);
+        if ("two_factor_required" in result || "email_otp_required" in result) setChallenge(result);
         else {
           const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
           navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(result.role), { replace: true });
@@ -73,8 +75,14 @@ export default function SignIn() {
             <form onSubmit={handleSubmit} className="space-y-6">
               {challenge ? (
                 <div className="space-y-4">
-                  <div className="rounded-xl bg-edu-purple/10 p-4 text-sm text-slate-700">Two-factor authentication is enabled. Open the authenticator app you connected to EduLearnX (Google Authenticator, Microsoft Authenticator or another TOTP-compatible app) and enter its current six-digit code. Codes refresh about every 30 seconds.</div>
-                  <label htmlFor="authenticator-code" className="mb-2 block text-sm font-semibold text-slate-900">Authenticator code</label>
+                  <div className="rounded-xl bg-edu-purple/10 p-4 text-sm text-slate-700">
+                    {"email_otp_required" in challenge
+                      ? `We sent a six-digit sign-in code to ${challenge.email || email}. It expires in 5 minutes.`
+                      : "Two-factor authentication is enabled. Enter the current six-digit code from your authenticator app."}
+                  </div>
+                  <label htmlFor="authenticator-code" className="mb-2 block text-sm font-semibold text-slate-900">
+                    {"email_otp_required" in challenge ? "Email verification code" : "Authenticator code"}
+                  </label>
                   <input id="authenticator-code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} placeholder="000000" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-4 text-center text-2xl tracking-[0.5em] text-slate-900 outline-none focus:border-edu-purple" required />
                   <button type="button" className="text-sm font-semibold text-edu-dark-blue" onClick={() => { setChallenge(null); setCode(""); setPassword(""); }}>Back to sign in</button>
                 </div>

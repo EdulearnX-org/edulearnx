@@ -75,7 +75,7 @@ export function initializeServer() {
 
 // Keep this list in sync with schema changes used by authentication and the core flows.
 export const requiredSchemaColumns: Record<string, readonly string[]> = {
-  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions", "two_factor_enabled", "two_factor_secret_enc", "two_factor_pending_secret_enc", "two_factor_required_at", "two_factor_defer_used"],
+  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions", "two_factor_enabled", "two_factor_secret_enc", "two_factor_pending_secret_enc", "two_factor_required_at", "two_factor_defer_used", "email_verified_at"],
   courses: ["id", "instructor_id", "price_cents", "is_published", "meeting_id", "zoom_link"],
   enrollments: ["student_id", "course_id", "class_time_slot", "progress_percentage", "is_completed"],
   auth_sessions: ["token_hash", "user_id", "expires_at"],
@@ -100,8 +100,8 @@ export async function hasRequiredSchema() {
   for (const [table, requiredColumns] of Object.entries(requiredSchemaColumns)) {
     if (requiredColumns.some(column => !columns.has(`${table}.${column}`))) return false;
   }
-  const migration = await query("SELECT 1 FROM app_migrations WHERE version = $1", ["20261031_audit_repairs"]);
-  return migration.rows.length > 0;
+  const migrations = await query("SELECT version FROM app_migrations WHERE version = ANY($1::text[])", [["20261031_audit_repairs", "20261123_student_email_otp"]]);
+  return migrations.rows.length === 2;
 }
 
 function getCorsOrigin() {

@@ -4,10 +4,12 @@ All endpoints are prefixed with `/api` and return JSON responses. JSON requests 
 
 ## Authentication
 
-All authenticated endpoints use the HTTP-only app session cookie. Authentication responses contain a public profile in `data`; no session token or password hash is returned.
+All authenticated endpoints use the HTTP-only app session cookie. Authentication responses contain a public profile in `data`; no session token or password hash is returned. Student email OTP codes expire after 5 minutes at login and 10 minutes during registration; each challenge allows at most five attempts. Codes are stored only as hashes. Student authenticator-app 2FA is disabled; admin authenticator 2FA remains supported.
 
-- `POST /auth/register`: `{ email, password, full_name }`; always creates a student.
-- `POST /auth/login`: `{ email, password }`.
+- `POST /auth/register`: `{ email, password, full_name }`; starts student registration and emails a six-digit OTP. Returns a short-lived `challenge_token`; no account or session is created until verification succeeds.
+- `POST /auth/register/verify-email-otp`: `{ challenge_token, code }`; verifies the registration email, creates the student account, and starts the session.
+- `POST /auth/login`: `{ email, password }`; student accounts receive a six-digit email OTP challenge on every login. Admin/teacher accounts retain their existing authenticator 2FA behavior.
+- `POST /auth/login/verify-email-otp`: `{ challenge_token, code }`; completes student email OTP login.
 - `GET /auth/session`: current active profile, or `200` with `data: null` when signed out (including expired/revoked sessions). Database failures return `503`. Protected endpoints still require a valid session and return `401` when unauthenticated.
 - `POST /auth/logout`: revokes the current session.
 - `POST /auth/forgot-password`: `{ email }`; requires SMTP configuration.

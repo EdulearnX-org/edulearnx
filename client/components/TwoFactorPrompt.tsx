@@ -70,7 +70,7 @@ export default function TwoFactorPrompt() {
     }
   };
 
-  if (!user || user.two_factor_enabled || closed) return null;
+  if (!user || user.role !== "admin" || user.two_factor_enabled || closed) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="two-factor-title">

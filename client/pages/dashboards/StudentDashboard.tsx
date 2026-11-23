@@ -105,15 +105,25 @@ export default function StudentDashboard({
   }, []);
 
   const saveEmailOtpPreference = async (enabled: boolean) => {
-    setSavingOtpSettings(true); setOtpSettingsStatus("");
+    setSavingOtpSettings(true);
+    setOtpSettingsStatus("");
     try {
-      const response = await fetch("/api/student/security-settings", {method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({email_otp_enabled:enabled})});
+      const response = await fetch("/api/student/security-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email_otp_enabled: enabled }),
+      });
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to save preference.");
-      setEmailOtpEnabled(payload.data.email_otp_enabled); setOtpSettingsStatus("Security preference saved.");
-    } catch(e) { setOtpSettingsStatus(e instanceof Error ? e.message : "Unable to save preference."); }
-    finally { setSavingOtpSettings(false); }
+      setEmailOtpEnabled(payload.data.email_otp_enabled);
+      setOtpSettingsStatus("Security preference saved.");
+    } catch (error) {
+      setOtpSettingsStatus(error instanceof Error ? error.message : "Unable to save preference.");
+    } finally {
+      setSavingOtpSettings(false);
+    }
   };
+
 
   useEffect(() => {
     if (!currentUser?.id) {
@@ -538,7 +548,7 @@ export default function StudentDashboard({
       <h2 className="font-semibold text-slate-950 dark:text-white">Sign-in security</h2>
       <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Email verification is always required when creating your account. This setting controls OTP codes for future sign-ins.</p>
       <label className="mt-4 flex items-start gap-3">
-        <input type="checkbox" checked={emailOtpEnabled || emailOtpRequired} disabled={savingOtpSettings || emailOtpRequired} onChange={event => saveEmailOtpPreference(event.target.checked)} className="mt-1 h-4 w-4 accent-slate-950" />
+        <input type="checkbox" checked={emailOtpEnabled || emailOtpRequired} disabled={savingOtpSettings || emailOtpRequired} onChange={(event) => saveEmailOtpPreference(event.target.checked)} className="mt-1 h-4 w-4 accent-slate-950" />
         <span><span className="block font-semibold text-slate-950 dark:text-white">Require an email OTP at sign-in</span><span className="text-sm text-slate-600 dark:text-slate-300">{emailOtpRequired ? "Your administrator requires OTP. You cannot turn it off." : "Turn this off to sign in with your password only, or turn it back on whenever you want."}</span></span>
       </label>
       {otpSettingsStatus && <p role="status" className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{otpSettingsStatus}</p>}

@@ -182,6 +182,7 @@ export const login: RequestHandler = async (req,res) => {
    return {twoFactor:false,emailOtp:false,user,token:await createSession(client,user.id)};
   });
   if("emailOtp" in result && result.emailOtp){
+    if(typeof result.challenge!=="string" || typeof result.email!=="string")throw new AuthFailure("Unable to create an email verification challenge.",503);
     try {
       const mail=mailConfig();
       await mail.transporter.sendMail({from:mail.from,to:result.email,subject:"Your EduLearnX sign-in code",
@@ -193,7 +194,7 @@ export const login: RequestHandler = async (req,res) => {
     return sendSuccess(res,{email_otp_required:true,challenge_token:result.challenge,email:result.email},"A sign-in code has been sent to your email.");
   }
   if("twoFactor" in result && result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
-  if(!("token" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
+  if(!("token" in result) || typeof result.token!=="string" || !("user" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
   setAuthCookie(res,result.token);return sendSuccess(res,publicProfile(result.user),"Signed in");
  }catch(error){return fail(res,error,"Unable to sign in.");}
 };

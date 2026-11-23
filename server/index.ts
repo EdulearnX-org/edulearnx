@@ -13,7 +13,6 @@ import { createUploadIntent } from "./routes/uploads.js";
 import { submitContactMessage } from "./routes/contact.js";
 import * as authRoutes from "./routes/auth.js";
 import * as securitySettingsRoutes from "./routes/securitySettings.js";
-import * as securitySettingsRoutes from "./routes/securitySettings.js";
 import * as userRoutes from "./routes/users.js";
 import * as courseRoutes from "./routes/courses.js";
 import * as courseZoomRoutes from "./routes/courseZoom.js";
@@ -249,11 +248,6 @@ export function createServer() {
   apiRouter.post("/live-classes/:id/join", requireAuth, liveClassRoutes.joinLiveClass);
   apiRouter.post("/live-classes/:id/video-sdk-token", requireAuth, liveClassRoutes.createVideoSdkToken);
   apiRouter.post("/live-classes/:id/leave", requireAuth, liveClassRoutes.leaveLiveClass);
-
-  apiRouter.get("/student/security-settings", requireAuth, securitySettingsRoutes.getStudentSecuritySettings);
-  apiRouter.put("/student/security-settings", requireAuth, securitySettingsRoutes.updateStudentSecuritySettings);
-  apiRouter.get("/admin/security-settings", requireAuth, requireAdminFeature("settings"), securitySettingsRoutes.getAdminSecuritySettings);
-  apiRouter.put("/admin/security-settings", requireAuth, requireAdminFeature("settings"), securitySettingsRoutes.updateAdminSecuritySettings);
 
   apiRouter.get("/student/security-settings", requireAuth, securitySettingsRoutes.getStudentSecuritySettings);
   apiRouter.put("/student/security-settings", requireAuth, securitySettingsRoutes.updateStudentSecuritySettings);

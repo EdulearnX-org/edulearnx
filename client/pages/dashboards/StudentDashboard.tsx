@@ -491,6 +491,7 @@ export default function StudentDashboard({
   };
 
   const renderSettings = () => (
+    <div className="space-y-5">
     <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
       <h2 className="font-semibold text-slate-950 dark:text-white">
         Account Settings
@@ -533,6 +534,16 @@ export default function StudentDashboard({
         </div>
       </form>
     </section>
+    <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+      <h2 className="font-semibold text-slate-950 dark:text-white">Sign-in security</h2>
+      <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Email verification is always required when creating your account. This setting controls OTP codes for future sign-ins.</p>
+      <label className="mt-4 flex items-start gap-3">
+        <input type="checkbox" checked={emailOtpEnabled || emailOtpRequired} disabled={savingOtpSettings || emailOtpRequired} onChange={event => saveEmailOtpPreference(event.target.checked)} className="mt-1 h-4 w-4 accent-slate-950" />
+        <span><span className="block font-semibold text-slate-950 dark:text-white">Require an email OTP at sign-in</span><span className="text-sm text-slate-600 dark:text-slate-300">{emailOtpRequired ? "Your administrator requires OTP. You cannot turn it off." : "Turn this off to sign in with your password only, or turn it back on whenever you want."}</span></span>
+      </label>
+      {otpSettingsStatus && <p role="status" className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{otpSettingsStatus}</p>}
+    </section>
+    </div>
   );
 
   const renderDashboard = () => {

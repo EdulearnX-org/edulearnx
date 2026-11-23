@@ -306,7 +306,7 @@ export const logout: RequestHandler = async(req,res)=>{
   } catch { return sendError(res,"Unable to revoke your session. Please retry.",503); }
 };
 
-function mailConfig() {
+function mailConfig(requireAppUrl = false) {
   const SMTP_HOST = process.env.SMTP_HOST;
   const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;
   const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "EduLearnX";
@@ -314,12 +314,19 @@ function mailConfig() {
   const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
   const APP_URL = process.env.APP_URL || process.env.URL;
   const port = Number(process.env.SMTP_PORT || 587);
-  if (!SMTP_HOST || !SMTP_FROM || !APP_URL || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {
+  if (!SMTP_HOST || !SMTP_FROM || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {
+    throw new AuthFailure("Email delivery is not configured. Contact support.",503);
+  }
+  let app: URL | undefined;
+  if (APP_URL) {
+    try { app = new URL(APP_URL); } catch {
+      if (requireAppUrl) throw new AuthFailure("Password reset email is not configured. Contact support.",503);
+    }
+  }
+  if (requireAppUrl && !app) {
     throw new AuthFailure("Password reset email is not configured. Contact support.",503);
   }
-  let app: URL;
-  try { app = new URL(APP_URL); } catch { throw new AuthFailure("Password reset email is not configured. Contact support.",503); }
-  if (!["https:","http:"].includes(app.protocol) || app.username || app.password || (process.env.NODE_ENV==="production" && app.protocol!=="https:")) {
+  if (app && (!["https:","http:"].includes(app.protocol) || app.username || app.password || (process.env.NODE_ENV==="production" && app.protocol!=="https:"))) {
     throw new AuthFailure("Password reset email is not configured. Contact support.",503);
   }
   const secure = process.env.SMTP_SECURE === "true" || (!process.env.SMTP_SECURE && port===465);
@@ -329,14 +336,14 @@ function mailConfig() {
     auth: SMTP_USER && SMTP_PASSWORD ? {user:SMTP_USER,pass:SMTP_PASSWORD} : undefined,
     connectionTimeout:10_000, greetingTimeout:10_000, socketTimeout:15_000,
   });
-  return {transporter,from:`${EMAIL_FROM_NAME} <${SMTP_FROM}>`,appOrigin:app.origin};
+  return {transporter,from:`${EMAIL_FROM_NAME} <${SMTP_FROM}>`,appOrigin:app?.origin};
 }
 export const forgotPassword: RequestHandler = async(req,res)=>{
   const parsed = emailSchema.safeParse(req.body?.email);
   if (!parsed.success) return sendError(res,"Provide a valid email address.",400);
   let issuedHash: string | undefined;
   try {
-    const mail = mailConfig();
+    const mail = mailConfig(true);
     const result = await transaction(async(client)=>{
       const existing = await client.query("SELECT id FROM users WHERE lower(email)=$1 AND is_active IS DISTINCT FROM FALSE FOR UPDATE",[parsed.data]);
       if (existing.rows.length!==1) return null;

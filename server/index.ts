@@ -34,11 +34,13 @@ import {
   requirePrimaryAdmin,
 } from "./utils/adminPermissionMiddleware.js";
 
+// Production schema changes are applied through reviewed migrations, never
+// from serverless function startup. Multiple cold starts can run concurrently,
+// so running the legacy DDL bootstrap here can race (DROP/ADD constraints).
 const shouldInitializeDatabase =
   !process.env.VERCEL &&
   process.env.NODE_ENV !== "test" &&
-  (process.env.NODE_ENV !== "production" ||
-    process.env.INITIALIZE_DATABASE_ON_STARTUP === "true");
+  process.env.NODE_ENV !== "production";
 let initializationPromise: Promise<void> | undefined;
 
 type JsonResponse = {

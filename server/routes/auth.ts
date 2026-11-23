@@ -126,7 +126,7 @@ export const register: RequestHandler = async (req,res) => {
 };
 
 export const verifyRegistrationEmailOtp: RequestHandler = async(req,res) => {
-  const parsed=z.object({challenge_token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().regex(/^\\d{6}$/)}).safeParse(req.body);
+  const parsed=z.object({challenge_token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().regex(/^\d{6}$/)}).safeParse(req.body);
   if(!parsed.success)return sendError(res,"Enter the six-digit code sent to your email.",400);
   try {
     const result=await transaction(async(client)=>{
@@ -187,13 +187,14 @@ export const login: RequestHandler = async (req,res) => {
     }
     return sendSuccess(res,{email_otp_required:true,challenge_token:result.challenge,email:result.email},"A sign-in code has been sent to your email.");
   }
-  if(result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
-  setAuthCookie(res,result.token!);return sendSuccess(res,publicProfile(result.user),"Signed in");
+  if("twoFactor" in result && result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
+  if(!("token" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
+  setAuthCookie(res,result.token);return sendSuccess(res,publicProfile(result.user),"Signed in");
  }catch(error){return fail(res,error,"Unable to sign in.");}
 };
 
 export const verifyLoginEmailOtp: RequestHandler=async(req,res)=>{
- const parsed=z.object({challenge_token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().regex(/^\\d{6}$/)}).safeParse(req.body);
+ const parsed=z.object({challenge_token:z.string().regex(/^[A-Za-z0-9_-]{43}$/),code:z.string().regex(/^\d{6}$/)}).safeParse(req.body);
  if(!parsed.success)return sendError(res,"Enter the six-digit code sent to your email.",400);
  try{
   const result=await transaction(async(client)=>{
@@ -237,18 +238,21 @@ export const verifyLoginTotp: RequestHandler=async(req,res)=>{
  }catch(error){return fail(res,error,"Unable to verify authenticator code.");}
 };
 
-export const getTwoFactorStatus: RequestHandler=async(req,res)=>{\n if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
+export const getTwoFactorStatus: RequestHandler=async(req,res)=>{
+ if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
  try{const r=await query("SELECT two_factor_enabled,two_factor_required_at,two_factor_defer_used FROM users WHERE id=$1",[req.user?.userId]);if(!r.rows[0])return sendError(res,"Account not found.",404);return sendSuccess(res,{enabled:Boolean(r.rows[0].two_factor_enabled),required_at:r.rows[0].two_factor_required_at,defer_used:Boolean(r.rows[0].two_factor_defer_used)},"Two-factor status");}
  catch{return sendError(res,"Unable to load two-factor status.",503);}
 };
-export const beginTwoFactorSetup: RequestHandler=async(req,res)=>{\n if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
+export const beginTwoFactorSetup: RequestHandler=async(req,res)=>{
+ if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
  try{
   const r=await query("SELECT email,role,two_factor_enabled FROM users WHERE id=$1 AND is_active IS DISTINCT FROM FALSE",[req.user?.userId]);const u=r.rows[0];if(!u)return sendError(res,"Account not found.",404);if(u.two_factor_enabled)return sendError(res,"Two-factor authentication is already enabled.",409);
   const secret=generateTotpSecret();await query("UPDATE users SET two_factor_pending_secret_enc=$1 WHERE id=$2",[encryptTotpSecret(secret),req.user?.userId]);
   return sendSuccess(res,{secret,otpauth_url:totpUri(secret,u.email,u.role),issuer:"EduLearnX",account:u.email},"Add this account to Google Authenticator");
  }catch(error){return fail(res,error,"Unable to start authenticator setup.");}
 };
-export const confirmTwoFactorSetup: RequestHandler=async(req,res)=>{\n if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
+export const confirmTwoFactorSetup: RequestHandler=async(req,res)=>{
+ if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
  const parsed=z.object({code:z.string().regex(/^\d{6}$/)}).safeParse(req.body);if(!parsed.success)return sendError(res,"Enter the six-digit code shown in your authenticator app.",400);
  try{
   const r=await query("SELECT two_factor_pending_secret_enc FROM users WHERE id=$1 AND is_active IS DISTINCT FROM FALSE",[req.user?.userId]);const encrypted=r.rows[0]?.two_factor_pending_secret_enc;if(!encrypted)return sendError(res,"Start authenticator setup again.",400);
@@ -260,7 +264,8 @@ export const confirmTwoFactorSetup: RequestHandler=async(req,res)=>{\n if(req.us
   return sendSuccess(res,{enabled:true},"Two-factor authentication is now enabled.");
  }catch{return sendError(res,"Unable to enable two-factor authentication.",503);}
 };
-export const deferTwoFactorSetup: RequestHandler=async(req,res)=>{\n if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
+export const deferTwoFactorSetup: RequestHandler=async(req,res)=>{
+ if(req.user?.role==="student")return sendError(res,"Authenticator-app two-factor authentication is not used for student accounts. Student sign-ins use email OTP.",403);
  try{
   const r=await query(`UPDATE users SET two_factor_required_at=CURRENT_TIMESTAMP+INTERVAL '3 days',two_factor_defer_used=TRUE WHERE id=$1 AND two_factor_enabled=FALSE AND two_factor_defer_used=FALSE AND two_factor_required_at>CURRENT_TIMESTAMP RETURNING two_factor_required_at`,[req.user?.userId]);
   if(!r.rows[0])return sendError(res,"The three-day postponement has already been used or the setup deadline has passed.",409);
@@ -295,7 +300,11 @@ export const logout: RequestHandler = async(req,res)=>{
 };
 
 function mailConfig() {
-  const SMTP_HOST = process.env.SMTP_HOST;\n  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;\n  const SMTP_USER = process.env.SMTP_USER;\n  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;\n  const APP_URL = process.env.APP_URL;
+  const SMTP_HOST = process.env.SMTP_HOST;
+  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;
+  const SMTP_USER = process.env.SMTP_USER;
+  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
+  const APP_URL = process.env.APP_URL;
   const port = Number(process.env.SMTP_PORT || 587);
   if (!SMTP_HOST || !SMTP_FROM || !APP_URL || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {
     throw new AuthFailure("Password reset email is not configured. Contact support.",503);
@@ -330,7 +339,11 @@ export const forgotPassword: RequestHandler = async(req,res)=>{
       return token;
     });
     if (result) await mail.transporter.sendMail({from:mail.from,to:parsed.data,subject:"Reset your EduLearnX password",
-      text:`Use this link to reset your EduLearnX password within 30 minutes:\n\n${mail.appOrigin}/reset-password?token=${encodeURIComponent(result)}\n\nIf you did not request this, you can ignore this email.`,
+      text:`Use this link to reset your EduLearnX password within 30 minutes:
+
+${mail.appOrigin}/reset-password?token=${encodeURIComponent(result)}
+
+If you did not request this, you can ignore this email.`,
     });
     return sendSuccess(res,null,"If an active account exists, a password reset email has been sent.");
   } catch(error) {
@@ -392,9 +405,11 @@ authRouter.use((req,res,next)=>{
   }
   next();
 });
-authRouter.post("/register",rateLimit("register",10,60*60*1000),register);\nauthRouter.post("/register/verify-email-otp",rateLimit("register-verify",20,15*60*1000),verifyRegistrationEmailOtp);
+authRouter.post("/register",rateLimit("register",10,60*60*1000),register);
+authRouter.post("/register/verify-email-otp",rateLimit("register-verify",20,15*60*1000),verifyRegistrationEmailOtp);
 authRouter.post("/login",rateLimit("login",20,15*60*1000),login);
-authRouter.post("/login/verify-totp",twoFactorLoginVerifyLimiter,rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);\nauthRouter.post("/login/verify-email-otp",twoFactorLoginVerifyLimiter,rateLimit("login-email-otp",20,15*60*1000),verifyLoginEmailOtp);
+authRouter.post("/login/verify-totp",twoFactorLoginVerifyLimiter,rateLimit("login-totp",20,15*60*1000),verifyLoginTotp);
+authRouter.post("/login/verify-email-otp",twoFactorLoginVerifyLimiter,rateLimit("login-email-otp",20,15*60*1000),verifyLoginEmailOtp);
 authRouter.get("/two-factor/status",requireAuth,twoFactorStatusLimiter,getTwoFactorStatus);
 authRouter.post("/two-factor/setup",requireAuth,twoFactorSetupLimiter,beginTwoFactorSetup);
 authRouter.post("/two-factor/confirm",requireAuth,twoFactorConfirmLimiter,confirmTwoFactorSetup);

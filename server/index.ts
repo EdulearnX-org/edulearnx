@@ -100,8 +100,8 @@ export async function hasRequiredSchema() {
   for (const [table, requiredColumns] of Object.entries(requiredSchemaColumns)) {
     if (requiredColumns.some(column => !columns.has(`${table}.${column}`))) return false;
   }
-  const migration = await query("SELECT 1 FROM app_migrations WHERE version = $1", ["20261031_audit_repairs"]);
-  return migration.rows.length > 0;
+  const migrations = await query("SELECT version FROM app_migrations WHERE version = ANY($1::text[])", [["20261031_audit_repairs", "20261123_student_email_otp"]]);
+  return migrations.rows.length === 2;
 }
 
 function getCorsOrigin() {

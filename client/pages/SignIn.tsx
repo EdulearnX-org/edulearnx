@@ -1,6 +1,6 @@
 import Navbar from "@/components/Navbar";
 import EduLearnXLogo from "@/components/EduLearnXLogo";
-import { completeTotpLogin, portalPathForRole, signInPortal, type TwoFactorChallenge } from "@/lib/portalData";
+import { completeEmailOtpLogin, completeTotpLogin, portalPathForRole, signInPortal, type EmailOtpChallenge, type TwoFactorChallenge } from "@/lib/portalData";
 import { ArrowRight, LockKeyhole, Mail, ShieldCheck } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -12,7 +12,7 @@ export default function SignIn() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [challenge, setChallenge] = useState<TwoFactorChallenge | null>(null);
+  const [challenge, setChallenge] = useState<TwoFactorChallenge | EmailOtpChallenge | null>(null);
   const [code, setCode] = useState("");
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -21,12 +21,14 @@ export default function SignIn() {
     setIsSubmitting(true);
     try {
       if (challenge) {
-        const user = await completeTotpLogin(challenge.challenge_token, code);
+        const user = "email_otp_required" in challenge
+          ? await completeEmailOtpLogin(challenge.challenge_token, code)
+          : await completeTotpLogin(challenge.challenge_token, code);
         const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
         navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(user.role), { replace: true });
       } else {
         const result = await signInPortal(email, password);
-        if ("two_factor_required" in result) setChallenge(result);
+        if ("two_factor_required" in result || "email_otp_required" in result) setChallenge(result);
         else {
           const destination = (location.state as { redirectTo?: string } | null)?.redirectTo;
           navigate(destination?.startsWith("/") && !destination.startsWith("//") ? destination : portalPathForRole(result.role), { replace: true });

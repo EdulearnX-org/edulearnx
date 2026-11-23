@@ -53,6 +53,9 @@ export default function AdminSettings() {
   const [savingCoAdminId, setSavingCoAdminId] = useState<number | null>(null);
   const [paymentSettings, setPaymentSettings] = useState(emptyPaymentSettings);
   const [paymentStatus, setPaymentStatus] = useState("");
+  const [studentOtpRequired, setStudentOtpRequired] = useState(false);
+  const [studentOtpStatus, setStudentOtpStatus] = useState("");
+  const [savingStudentOtp, setSavingStudentOtp] = useState(false);
   useEffect(() => {
     if (!isPrimaryAdmin(currentUser?.email ?? "")) return;
 
@@ -80,6 +83,36 @@ export default function AdminSettings() {
       isMounted = false;
     };
   }, [currentUser?.email]);
+
+  useEffect(() => {
+    fetch("/api/admin/security-settings")
+      .then((response) => response.json())
+      .then((payload) => {
+        if (payload.success && payload.data) setStudentOtpRequired(payload.data.student_email_otp_required);
+        else setStudentOtpStatus(payload.error || "Unable to load student OTP policy.");
+      })
+      .catch(() => setStudentOtpStatus("Unable to load student OTP policy."));
+  }, []);
+
+  const saveStudentOtpPolicy = async (required: boolean) => {
+    setSavingStudentOtp(true);
+    setStudentOtpStatus("");
+    try {
+      const response = await fetch("/api/admin/security-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_email_otp_required: required }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to update policy.");
+      setStudentOtpRequired(payload.data.student_email_otp_required);
+      setStudentOtpStatus("Student OTP policy saved.");
+    } catch (error) {
+      setStudentOtpStatus(error instanceof Error ? error.message : "Unable to update policy.");
+    } finally {
+      setSavingStudentOtp(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/payment-settings")
@@ -189,6 +222,16 @@ export default function AdminSettings() {
             Edit your admin account name and request a password reset.
           </p>
         </header>
+
+        <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="font-semibold text-slate-950 dark:text-white">Student sign-in security</h2>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">Control whether students may turn off email OTP for future logins. Email verification during registration always remains required.</p>
+          <label className="mt-4 flex items-start gap-3">
+            <input type="checkbox" checked={studentOtpRequired} disabled={savingStudentOtp} onChange={(event) => saveStudentOtpPolicy(event.target.checked)} className="mt-1 h-4 w-4 accent-slate-950" />
+            <span><span className="block font-semibold text-slate-950 dark:text-white">Require email OTP for every student login</span><span className="text-sm text-slate-600 dark:text-slate-300">When enabled, students cannot disable OTP. When disabled, each student controls their own preference.</span></span>
+          </label>
+          {studentOtpStatus && <p role="status" className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">{studentOtpStatus}</p>}
+        </section>
 
         <section className="rounded-lg border border-slate-300 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center gap-3">

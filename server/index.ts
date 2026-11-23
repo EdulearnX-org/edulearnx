@@ -12,6 +12,7 @@ import { maintenanceHandler } from "./utils/maintenance.js";
 import { createUploadIntent } from "./routes/uploads.js";
 import { submitContactMessage } from "./routes/contact.js";
 import * as authRoutes from "./routes/auth.js";
+import * as securitySettingsRoutes from "./routes/securitySettings.js";
 import * as userRoutes from "./routes/users.js";
 import * as courseRoutes from "./routes/courses.js";
 import * as courseZoomRoutes from "./routes/courseZoom.js";
@@ -75,7 +76,7 @@ export function initializeServer() {
 
 // Keep this list in sync with schema changes used by authentication and the core flows.
 export const requiredSchemaColumns: Record<string, readonly string[]> = {
-  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions", "two_factor_enabled", "two_factor_secret_enc", "two_factor_pending_secret_enc", "two_factor_required_at", "two_factor_defer_used", "email_verified_at"],
+  users: ["id", "email", "password_hash", "full_name", "role", "is_active", "admin_permissions", "two_factor_enabled", "two_factor_secret_enc", "two_factor_pending_secret_enc", "two_factor_required_at", "two_factor_defer_used", "email_verified_at", "student_email_otp_enabled"],
   courses: ["id", "instructor_id", "price_cents", "is_published", "meeting_id", "zoom_link"],
   enrollments: ["student_id", "course_id", "class_time_slot", "progress_percentage", "is_completed"],
   auth_sessions: ["token_hash", "user_id", "expires_at"],
@@ -88,6 +89,7 @@ export const requiredSchemaColumns: Record<string, readonly string[]> = {
   upload_intents: ["id", "token_hash", "owner_id", "purpose", "bucket", "object_path", "content_type", "byte_size", "status", "expires_at"],
   request_limits: ["key_hash", "attempts", "expires_at"],
   app_migrations: ["version"],
+  app_settings: ["setting_key", "setting_value", "updated_at", "updated_by"],
 };
 
 export async function hasRequiredSchema() {
@@ -100,8 +102,8 @@ export async function hasRequiredSchema() {
   for (const [table, requiredColumns] of Object.entries(requiredSchemaColumns)) {
     if (requiredColumns.some(column => !columns.has(`${table}.${column}`))) return false;
   }
-  const migrations = await query("SELECT version FROM app_migrations WHERE version = ANY($1::text[])", [["20261031_audit_repairs", "20261123_student_email_otp"]]);
-  return migrations.rows.length === 2;
+  const migrations = await query("SELECT version FROM app_migrations WHERE version = ANY($1::text[])", [["20261031_audit_repairs", "20261123_student_email_otp", "20261123_student_otp_preferences"]]);
+  return migrations.rows.length === 3;
 }
 
 function getCorsOrigin() {
@@ -247,6 +249,11 @@ export function createServer() {
   apiRouter.post("/live-classes/:id/join", requireAuth, liveClassRoutes.joinLiveClass);
   apiRouter.post("/live-classes/:id/video-sdk-token", requireAuth, liveClassRoutes.createVideoSdkToken);
   apiRouter.post("/live-classes/:id/leave", requireAuth, liveClassRoutes.leaveLiveClass);
+
+  apiRouter.get("/student/security-settings", requireAuth, securitySettingsRoutes.getStudentSecuritySettings);
+  apiRouter.put("/student/security-settings", requireAuth, securitySettingsRoutes.updateStudentSecuritySettings);
+  apiRouter.get("/admin/security-settings", requireAuth, requireAdminFeature("settings"), securitySettingsRoutes.getAdminSecuritySettings);
+  apiRouter.put("/admin/security-settings", requireAuth, requireAdminFeature("settings"), securitySettingsRoutes.updateAdminSecuritySettings);
 
   apiRouter.get("/payment-settings", paymentSettingsRoutes.getPaymentSettings);
   apiRouter.put("/payment-settings", requireAuth, requireAdminFeature("settings"), paymentSettingsRoutes.updatePaymentSettings);

@@ -130,6 +130,8 @@ export function updateCurrentPortalUser(updates: Partial<PortalUser>) {
   return user;
 }
 
+function establishSession(path: "login", body: unknown): Promise<PortalUser | TwoFactorChallenge | EmailOtpChallenge>;
+function establishSession(path: "register", body: unknown): Promise<PortalUser | RegistrationEmailChallenge>;
 async function establishSession(path: "login" | "register", body: unknown): Promise<PortalUser | TwoFactorChallenge | EmailOtpChallenge | RegistrationEmailChallenge> {
   const generation = ++sessionGeneration;
   initialSessionRequest = undefined;

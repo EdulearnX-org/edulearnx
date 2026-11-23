@@ -157,12 +157,15 @@ export const login: RequestHandler = async (req,res) => {
  const parsed=loginSchema.safeParse(req.body); if(!parsed.success)return sendError(res,"Email and password are required.",400);
  try{
   const result=await transaction(async(client)=>{
-   const found=await client.query(`SELECT ${profileColumns},password_hash,two_factor_enabled,two_factor_secret_enc,two_factor_required_at FROM users WHERE lower(email)=$1 FOR UPDATE`,[parsed.data.email]);
+   const found=await client.query(`SELECT ${profileColumns},password_hash,two_factor_enabled,two_factor_secret_enc,two_factor_required_at,student_email_otp_enabled FROM users WHERE lower(email)=$1 FOR UPDATE`,[parsed.data.email]);
    const user=found.rows[0];
    if(!user||user.is_active===false||!(await verifyPassword(parsed.data.password,user.password_hash))){if(!user)await hashPassword("unknown-account-timing-padding");throw new AuthFailure("Invalid email or password.",401);}
    if(isLegacyHash(user.password_hash)&&Buffer.byteLength(parsed.data.password,"utf8")<=72)await client.query("UPDATE users SET password_hash=$1,updated_at=CURRENT_TIMESTAMP WHERE id=$2",[await hashPassword(parsed.data.password),user.id]);
    const prior=readSessionToken(req);if(prior)await client.query("DELETE FROM auth_sessions WHERE token_hash=$1",[hashAuthToken(prior)]);
    if(user.role==="student"){
+    const policy=await client.query("SELECT setting_value FROM app_settings WHERE setting_key=$1",["student_email_otp_required"]);
+    const otpRequired=policy.rows[0]?.setting_value!=="false";
+    if(!otpRequired && user.student_email_otp_enabled===false){return {emailOtp:false,twoFactor:false,user,token:await createSession(client,user.id)};}
     const challenge=crypto.randomBytes(32).toString("base64url");
     const code=String(crypto.randomInt(0,1_000_000)).padStart(6,"0");
     await client.query("DELETE FROM email_otp_challenges WHERE expires_at<=CURRENT_TIMESTAMP");
@@ -179,6 +182,7 @@ export const login: RequestHandler = async (req,res) => {
    return {twoFactor:false,emailOtp:false,user,token:await createSession(client,user.id)};
   });
   if("emailOtp" in result && result.emailOtp){
+    if(typeof result.challenge!=="string" || typeof result.email!=="string")throw new AuthFailure("Unable to create an email verification challenge.",503);
     try {
       const mail=mailConfig();
       await mail.transporter.sendMail({from:mail.from,to:result.email,subject:"Your EduLearnX sign-in code",
@@ -190,7 +194,7 @@ export const login: RequestHandler = async (req,res) => {
     return sendSuccess(res,{email_otp_required:true,challenge_token:result.challenge,email:result.email},"A sign-in code has been sent to your email.");
   }
   if("twoFactor" in result && result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
-  if(!("token" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
+  if(!("token" in result) || typeof result.token!=="string" || !("user" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
   setAuthCookie(res,result.token);return sendSuccess(res,publicProfile(result.user),"Signed in");
  }catch(error){return fail(res,error,"Unable to sign in.");}
 };

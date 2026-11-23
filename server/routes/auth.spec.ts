@@ -7,7 +7,7 @@ import pool,{query} from "../db/connection.js";
 import nodemailer from "nodemailer";
 import {hashPassword} from "../utils/password.js";
 import {hashAuthToken} from "../utils/authMiddleware.js";
-import {getSession,login,register,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
+import {getSession,login,register,verifyRegistrationEmailOtp,verifyLoginEmailOtp,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
 const db=vi.fn();const release=vi.fn();const sendMail=vi.fn();
 const token=crypto.randomBytes(32).toString("base64url");
 let passwordHash:string;
@@ -69,15 +69,18 @@ describe("app-owned authentication",()=>{
   expect(db.mock.calls.some(([sql])=>sql.includes("INSERT INTO auth_sessions"))).toBe(false);
  });
  it("never claims an existing profile through registration",async()=>{
+  vi.stubEnv("SMTP_HOST","localhost");vi.stubEnv("SMTP_USER","mailer@example.com");vi.stubEnv("SMTP_PASS","secret");vi.stubEnv("EMAIL_FROM","mailer@example.com");vi.stubEnv("APP_URL","http://localhost:5173");
+  db.mockImplementation(async(sql:string)=>({rows:sql.startsWith("SELECT id FROM users")?[{id:12}]:[]}));
   const res=response();await register(req({email:user.email,password:"new-password",full_name:"New Admin",role:"admin"}),res,vi.fn());
   expect(res.status).toHaveBeenCalledWith(409);expect(res.cookie).not.toHaveBeenCalled();
   expect(db.mock.calls.some(([sql])=>sql.startsWith("UPDATE users"))).toBe(false);
  });
- it("always creates students even when the request forges an admin role",async()=>{
-  db.mockImplementation(async(sql:string)=>({rows:sql.startsWith("INSERT INTO users")?[{...user,role:"student"}]:[]}));
+ it("sends a registration OTP without creating a session before email verification",async()=>{
+  vi.stubEnv("SMTP_HOST","localhost");vi.stubEnv("SMTP_USER","mailer@example.com");vi.stubEnv("SMTP_PASS","secret");vi.stubEnv("EMAIL_FROM","mailer@example.com");vi.stubEnv("APP_URL","http://localhost:5173");
   const res=response();await register(req({email:"new@example.com",password:"new-password",full_name:"New Student",role:"admin"}),res,vi.fn());
-  expect(res.status).toHaveBeenCalledWith(201);
-  expect(db).toHaveBeenCalledWith(expect.stringContaining("VALUES ($1,$2,$3,$3,'student')"),["new@example.com",expect.stringMatching(/^\$2/),"New Student"]);
+  expect(res.status).toHaveBeenCalledWith(202);expect(res.cookie).not.toHaveBeenCalled();
+  expect(db).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO pending_student_registrations"),expect.arrayContaining(["new@example.com",expect.any(String),expect.any(String),expect.any(String),expect.any(Date)]));
+  expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({to:"new@example.com",subject:"Verify your EduLearnX email"}));
  });
  it("revokes the current database session before clearing its cookie",async()=>{
   const res=response();await logout(req({}, {headers:{cookie:`auth_token=${token}`}}),res,vi.fn());

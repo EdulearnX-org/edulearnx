@@ -7,7 +7,7 @@ import pool,{query} from "../db/connection.js";
 import nodemailer from "nodemailer";
 import {hashPassword} from "../utils/password.js";
 import {hashAuthToken} from "../utils/authMiddleware.js";
-import {getSession,login,register,verifyRegistrationEmailOtp,verifyLoginEmailOtp,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
+import {getSession,login,register,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
 const db=vi.fn();const release=vi.fn();const sendMail=vi.fn();
 const token=crypto.randomBytes(32).toString("base64url");
 let passwordHash:string;

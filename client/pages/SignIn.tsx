@@ -54,10 +54,6 @@ export default function SignIn() {
             <div className="mb-6">
               <EduLearnXLogo />
             </div>
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-edu-purple/10 px-4 py-2 text-sm font-semibold text-edu-purple">
-              <ShieldCheck className="h-4 w-4" />
-              Secure Portal Access
-            </div>
             <h1 className="mb-5 text-4xl font-bold leading-tight text-slate-900 sm:text-5xl">
               Sign in to your EduLearnX portal
             </h1>

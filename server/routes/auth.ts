@@ -320,8 +320,8 @@ function otpEmail(code: string, purpose: "registration" | "login") {
   const isRegistration = purpose === "registration";
   const title = isRegistration ? "Verify your email address" : "Your secure sign-in code";
   const intro = isRegistration
-    ? "Use the verification code below to finish creating your EduLearnX account."
-    : "We received a request to sign in to your EduLearnX student account. Enter this code to continue.";
+    ? "Enter this code on EduLearnX to finish creating your account."
+    : "Enter this code on EduLearnX to securely complete your sign-in.";
   const expiry = isRegistration ? "This code expires in 10 minutes." : "This code expires in 5 minutes.";
   const safety = isRegistration
     ? "If you did not start creating an EduLearnX account, you can safely ignore this email."
@@ -329,43 +329,45 @@ function otpEmail(code: string, purpose: "registration" | "login") {
   const logoUrl = "https://edulearnxi.netlify.app/logo.png";
   const siteUrl = "https://edulearnxi.netlify.app";
   return {
-    text: `EDULEARNX
-${title}
-
-${intro}
-
-${code}
+    text: `YOUR EDULEARNX VERIFICATION CODE: ${code}
 
 ${expiry}
+${intro}
 
-For your security, never share this code with anyone. EduLearnX staff will never ask you for it.
+Tip: Select the six-digit code above to copy it, then paste it into EduLearnX.
+
+Never share this code with anyone. EduLearnX staff will never ask you for it.
 
 ${safety}
 
 EduLearnX • ${siteUrl}`,
     html: `<!doctype html>
 <html lang="en">
-  <body style="margin:0;padding:32px 16px;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+  <body style="margin:0;padding:24px 14px;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #e5eaf2;border-radius:18px;overflow:hidden;">
-      <tr><td align="center" style="padding:30px 28px 18px;">
+      <tr><td align="center" style="padding:26px 24px 10px;">
+        <div style="color:#53627a;font-size:13px;font-weight:700;letter-spacing:1.5px;">EDULEARNX • SECURE VERIFICATION</div>
+      </td></tr>
+      <tr><td style="padding:12px 28px 22px;text-align:center;">
+        <div style="margin:0 auto 10px;padding:22px 12px;background:#f1f5ff;border:1px solid #dce6ff;border-radius:14px;">
+          <div style="color:#53627a;font-size:13px;font-weight:700;letter-spacing:1.4px;margin-bottom:9px;">YOUR ONE-TIME CODE</div>
+          <div style="color:#172554;font-family:Arial,Helvetica,sans-serif;font-size:42px;font-weight:800;letter-spacing:8px;line-height:1.25;">${code}</div>
+        </div>
+        <p style="margin:0 0 8px;color:#53627a;font-size:13px;line-height:1.5;">Select and copy the code above, then paste it into EduLearnX.</p>
+        <p style="margin:0;color:#26344d;font-size:15px;line-height:1.6;font-weight:700;">${expiry}</p>
+      </td></tr>
+      <tr><td align="center" style="padding:8px 24px 12px;">
         <a href="${siteUrl}" target="_blank" style="text-decoration:none;">
-          <img src="${logoUrl}" alt="EduLearnX" width="220" style="display:block;width:220px;max-width:80%;height:auto;border:0;">
+          <img src="${logoUrl}" alt="EduLearnX" width="190" style="display:block;width:190px;max-width:75%;height:auto;border:0;">
         </a>
       </td></tr>
-      <tr><td style="padding:8px 34px 34px;">
-        <p style="margin:0 0 10px;color:#53627a;font-size:14px;font-weight:700;letter-spacing:1.5px;text-align:center;">SECURE ACCOUNT VERIFICATION</p>
-        <h1 style="margin:0 0 16px;color:#14213d;font-size:28px;line-height:1.25;text-align:center;">${title}</h1>
-        <p style="margin:0 0 24px;color:#43516a;font-size:18px;line-height:1.65;text-align:center;">${intro}</p>
-        <div style="margin:0 auto 20px;padding:22px 12px;background:#f1f5ff;border:1px solid #dce6ff;border-radius:14px;text-align:center;">
-          <div style="color:#53627a;font-size:13px;font-weight:700;letter-spacing:1.4px;margin-bottom:8px;">YOUR ONE-TIME CODE</div>
-          <div style="color:#172554;font-family:Arial,Helvetica,sans-serif;font-size:40px;font-weight:800;letter-spacing:9px;line-height:1.25;">${code}</div>
-        </div>
-        <p style="margin:0 0 12px;color:#26344d;font-size:16px;line-height:1.6;text-align:center;font-weight:700;">${expiry}</p>
-        <p style="margin:0 0 18px;color:#53627a;font-size:15px;line-height:1.65;text-align:center;">For your security, never share this code with anyone. EduLearnX staff will never ask you for it.</p>
-        <div style="padding:15px 17px;background:#fff8e8;border-radius:10px;color:#70521c;font-size:14px;line-height:1.6;">${safety}</div>
+      <tr><td style="padding:8px 30px 28px;">
+        <h1 style="margin:0 0 12px;color:#14213d;font-size:25px;line-height:1.25;text-align:center;">${title}</h1>
+        <p style="margin:0 0 18px;color:#43516a;font-size:17px;line-height:1.6;text-align:center;">${intro}</p>
+        <div style="padding:15px 17px;background:#fff8e8;border-radius:10px;color:#70521c;font-size:14px;line-height:1.6;">For your security, never share this code with anyone. EduLearnX staff will never ask you for it. ${safety}</div>
       </td></tr>
       <tr><td style="padding:18px 24px;background:#f8faff;border-top:1px solid #e8edf5;text-align:center;">
-        <a href="${siteUrl}" style="color:#334e91;font-size:14px;font-weight:700;text-decoration:none;">Visit EduLearnX</a>
+        <a href="${siteUrl}" style="color:#334e91;font-size:14px;font-weight:700;text-decoration:none;">Open EduLearnX</a>
         <p style="margin:8px 0 0;color:#8994a7;font-size:12px;">This is an automated security email. Please do not reply.</p>
       </td></tr>
     </table>

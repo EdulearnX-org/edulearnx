@@ -196,7 +196,17 @@ export const login: RequestHandler = async (req,res) => {
   if("twoFactor" in result && result.twoFactor)return sendSuccess(res,{two_factor_required:true,challenge_token:result.challenge},"Authenticator verification required");
   if(!("token" in result) || typeof result.token!=="string" || !("user" in result))throw new AuthFailure("Unable to establish your session. Please sign in again.",503);
   setAuthCookie(res,result.token);return sendSuccess(res,publicProfile(result.user),"Signed in");
- }catch(error){return fail(res,error,"Unable to sign in.");}
+ }catch(error){
+  const requestId = req.get("x-nf-request-id") || req.get("x-request-id") || "unavailable";
+  const err = error instanceof Error ? error : new Error(String(error));
+  const code = typeof (error as {code?:unknown})?.code === "string" ? (error as {code:string}).code : "UNKNOWN";
+  console.error("[Auth] Login failed", {requestId, code, message:err.message, stack:err.stack});
+  const debugEnabled = process.env.AUTH_DEBUG_ERRORS === "true";
+  if (debugEnabled && !(error instanceof AuthFailure)) {
+    return sendError(res, `Unable to sign in: ${err.message} [${code}]`, 503);
+  }
+  return fail(res,error,"Unable to sign in.");
+ }
 };
 
 export const verifyLoginEmailOtp: RequestHandler=async(req,res)=>{

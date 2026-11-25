@@ -8,6 +8,7 @@ import {
   useLiveClasses,
 } from "@/hooks/useLiveClasses";
 import { getCurrentPortalUser } from "@/lib/portalData";
+import { LIVE_CLASS_DURATION_MINUTES } from "../../../shared/liveClassRules";
 import { BookOpen, CalendarClock, LayoutDashboard, Video } from "lucide-react";
 import { FormEvent, useState } from "react";
 
@@ -27,7 +28,7 @@ export default function TeacherDashboard() {
     course_id: "",
     title: "",
     class_time: "",
-    duration_minutes: "40",
+    duration_minutes: String(LIVE_CLASS_DURATION_MINUTES),
   });
   const [status, setStatus] = useState("");
   const assignedCourses = courses.filter(

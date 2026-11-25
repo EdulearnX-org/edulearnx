@@ -377,11 +377,12 @@ EduLearnX • ${siteUrl}`,
 }
 
 function mailConfig(requireAppUrl = false) {
-  const SMTP_HOST = process.env.SMTP_HOST;
-  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;
+  const GMAIL_USER = process.env.GMAIL_USER;
+  const SMTP_HOST = process.env.SMTP_HOST || (GMAIL_USER ? "smtp.gmail.com" : undefined);
+  const SMTP_USER = process.env.SMTP_USER || GMAIL_USER;
+  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
+  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || SMTP_USER;
   const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "EduLearnX";
-  const SMTP_USER = process.env.SMTP_USER;
-  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
   const APP_URL = process.env.APP_URL || process.env.URL;
   const port = Number(process.env.SMTP_PORT || 587);
   if (!SMTP_HOST || !SMTP_FROM || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {

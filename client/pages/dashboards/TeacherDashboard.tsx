@@ -27,7 +27,7 @@ export default function TeacherDashboard() {
     course_id: "",
     title: "",
     class_time: "",
-    duration_minutes: "60",
+    duration_minutes: "40",
   });
   const [status, setStatus] = useState("");
   const assignedCourses = courses.filter(
@@ -54,8 +54,8 @@ export default function TeacherDashboard() {
     const durationMinutes = Number(form.duration_minutes);
     const sessions = buildFiveWeekdayClassTimes(form.class_time, durationMinutes);
 
-    if (!form.course_id || sessions.length !== 5 || durationMinutes < 15) {
-      setStatus("Choose a course, time, and duration of at least 15 minutes.");
+    if (!form.course_id || sessions.length !== 5 || durationMinutes !== 40) {
+      setStatus("Choose a course and time. Each weekday class is exactly 40 minutes.");
       return;
     }
 
@@ -84,7 +84,7 @@ export default function TeacherDashboard() {
       course_id: "",
       title: "",
       class_time: "",
-      duration_minutes: "60",
+      duration_minutes: "40",
     });
     setStatus(`Timing assigned in your timezone (${localTimeZoneLabel()}).`);
     await reloadLiveClasses();
@@ -164,18 +164,9 @@ export default function TeacherDashboard() {
               className={inputClass}
               aria-label="Class time"
             />
-            <input
-              required
-              type="number"
-              min="15"
-              step="15"
-              value={form.duration_minutes}
-              onChange={(event) =>
-                setForm({ ...form, duration_minutes: event.target.value })
-              }
-              placeholder="Duration minutes"
-              className={inputClass}
-            />
+            <div className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+              Fixed class duration: 40 minutes
+            </div>
             <button
               type="submit"
               disabled={assignedCourses.length === 0}

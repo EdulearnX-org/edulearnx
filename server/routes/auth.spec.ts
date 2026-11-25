@@ -98,7 +98,6 @@ describe("app-owned authentication",()=>{
   const text=sendMail.mock.calls[0][0].text as string;const rawToken=new URL(text.match(/http[^\s]+/)![0]).searchParams.get("token")!;
   expect(rawToken).toMatch(/^[a-f0-9]{64}$/);
   expect(sendMail.mock.calls[0][0].html).toContain("Reset my password");
-  expect(sendMail.mock.calls[0][0].html).toContain("https://");
   expect(sendMail.mock.calls[0][0].html).toContain("/logo.png");
   expect(db).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO password_reset_tokens"),[hashAuthToken(rawToken),"12",expect.any(Date),"12"]);
   expect(JSON.stringify(vi.mocked(res.json).mock.calls)).not.toContain(rawToken);

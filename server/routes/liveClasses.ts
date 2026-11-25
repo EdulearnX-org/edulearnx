@@ -94,7 +94,14 @@ const scheduleSchema = z.object({
   scheduled_start: instantSchema, scheduled_end: instantSchema,
 }).strict();
 function validateWindow(start: string | Date, end: string | Date) {
-  if (!Number.isFinite(new Date(start).getTime()) || !Number.isFinite(new Date(end).getTime()) || new Date(start)>=new Date(end)) throw new HttpError(400,"End time must be after start time");
+  const startTime = new Date(start).getTime();
+  const endTime = new Date(end).getTime();
+  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
+    throw new HttpError(400, "End time must be after start time");
+  }
+  if (endTime - startTime !== 40 * 60 * 1000) {
+    throw new HttpError(400, "Every EduLearnX class must be exactly 40 minutes");
+  }
 }
 async function validateAssignment(client: PoolClient, actor: any, values: any) {
   const course=(await client.query("SELECT id,instructor_id FROM courses WHERE id=$1 FOR UPDATE",[values.course_id])).rows[0];

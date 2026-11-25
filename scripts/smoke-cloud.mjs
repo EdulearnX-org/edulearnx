@@ -69,6 +69,7 @@ try {
   mailId = message.ID;
   const mail = await (await fetch(`http://127.0.0.1:18025/api/v1/message/${mailId}`)).json();
   const token = new URL(mail.Text.match(/http[^\s]+\/reset-password\?token=[^\s]+/)[0]).searchParams.get("token");
+  assert.match(token, /^[a-f0-9]{64}$/, "Reset link contains a 64-character hexadecimal token");
   await request("/auth/reset-password", { token, password: newPassword });
   assert.equal((await request("/auth/session", undefined, 200, beforeReset)).payload.data, null);
   await request("/auth/reset-password", { token, password: newPassword }, 400);

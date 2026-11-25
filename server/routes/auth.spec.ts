@@ -9,7 +9,7 @@ import {hashPassword} from "../utils/password.js";
 import {hashAuthToken} from "../utils/authMiddleware.js";
 import {getSession,login,register,logout,forgotPassword,resetPassword,changePassword} from "./auth.js";
 const db=vi.fn();const release=vi.fn();const sendMail=vi.fn();
-const token=crypto.randomBytes(32).toString("base64url");
+const token=crypto.randomBytes(32).toString("hex");
 let passwordHash:string;
 const user={id:12,email:"admin@example.com",full_name:"Admin",role:"admin",is_active:true,phone:null,profile_image_url:null,two_factor_enabled:false,two_factor_required_at:null};
 function response(){const res={status:vi.fn(),json:vi.fn(),cookie:vi.fn(),clearCookie:vi.fn(),setHeader:vi.fn()} as unknown as Response;vi.mocked(res.status).mockReturnValue(res);return res;}
@@ -91,12 +91,21 @@ describe("app-owned authentication",()=>{
   vi.stubEnv("SMTP_HOST","");const res=response();await forgotPassword(req({email:user.email}),res,vi.fn());
   expect(res.status).toHaveBeenCalledWith(503);expect(sendMail).not.toHaveBeenCalled();
  });
+ it("uses the configured Gmail app password for SMTP delivery",async()=>{
+  vi.stubEnv("GMAIL_USER","official.edulearnx@gmail.com");vi.stubEnv("GMAIL_APP_PASSWORD","gmail-app-password");vi.stubEnv("EMAIL_FROM_NAME","EduLearnX");vi.stubEnv("APP_URL","https://edulearnx.org");
+  db.mockImplementation(async(sql:string)=>({rows:sql.startsWith("SELECT")?[{id:12}]:[]}));
+  const res=response();await forgotPassword(req({email:user.email}),res,vi.fn());
+  expect(nodemailer.createTransport).toHaveBeenCalledWith(expect.objectContaining({host:"smtp.gmail.com",port:587,secure:false,auth:{user:"official.edulearnx@gmail.com",pass:"gmail-app-password"}}));
+  expect(sendMail).toHaveBeenCalledWith(expect.objectContaining({from:"EduLearnX <official.edulearnx@gmail.com>",to:user.email}));
+ });
  it("emails a short-lived token, stores only its hash, and never returns the token",async()=>{
   vi.stubEnv("SMTP_HOST","localhost");vi.stubEnv("SMTP_FROM","support@example.com");vi.stubEnv("APP_URL","http://localhost:5173");
   db.mockImplementation(async(sql:string)=>({rows:sql.startsWith("SELECT")?[{id:12}]:[]}));
   const res=response();await forgotPassword(req({email:user.email}),res,vi.fn());
   const text=sendMail.mock.calls[0][0].text as string;const rawToken=new URL(text.match(/http[^\s]+/)![0]).searchParams.get("token")!;
-  expect(rawToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(rawToken).toMatch(/^[a-f0-9]{64}$/);
+  expect(sendMail.mock.calls[0][0].html).toContain("Reset my password");
+  expect(sendMail.mock.calls[0][0].html).toContain("/logo.png");
   expect(db).toHaveBeenCalledWith(expect.stringContaining("INSERT INTO password_reset_tokens"),[hashAuthToken(rawToken),"12",expect.any(Date),"12"]);
   expect(JSON.stringify(vi.mocked(res.json).mock.calls)).not.toContain(rawToken);
  });

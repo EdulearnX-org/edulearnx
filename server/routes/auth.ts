@@ -14,7 +14,7 @@ const emailSchema = z.string().trim().toLowerCase().email().max(255);
 const passwordSchema = z.string().refine(isValidPassword, "Use at least 8 characters and at most 72 UTF-8 bytes.");
 const loginSchema = z.object({email: emailSchema, password: z.string().min(1).max(1024)});
 const registerSchema = z.object({email: emailSchema, password: passwordSchema, full_name: z.string().trim().min(1).max(255)});
-const resetSchema = z.object({token: z.string().regex(/^[A-Za-z0-9_-]{43}$/), password: passwordSchema});
+const resetSchema = z.object({token: z.string().regex(/^[a-f0-9]{64}$/), password: passwordSchema});
 const profileColumns = "id, email, full_name, role, profile_image_url, phone, is_active, two_factor_enabled, two_factor_required_at";
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const RESET_MS = 30 * 60 * 1000;
@@ -377,11 +377,12 @@ EduLearnX • ${siteUrl}`,
 }
 
 function mailConfig(requireAppUrl = false) {
-  const SMTP_HOST = process.env.SMTP_HOST;
-  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || process.env.SMTP_USER;
+  const GMAIL_USER = process.env.GMAIL_USER;
+  const SMTP_HOST = process.env.SMTP_HOST || (GMAIL_USER ? "smtp.gmail.com" : undefined);
+  const SMTP_USER = process.env.SMTP_USER || GMAIL_USER;
+  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS || process.env.GMAIL_APP_PASSWORD;
+  const SMTP_FROM = process.env.SMTP_FROM || process.env.EMAIL_FROM || SMTP_USER;
   const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || "EduLearnX";
-  const SMTP_USER = process.env.SMTP_USER;
-  const SMTP_PASSWORD = process.env.SMTP_PASSWORD || process.env.SMTP_PASS;
   const APP_URL = process.env.APP_URL || process.env.URL;
   const port = Number(process.env.SMTP_PORT || 587);
   if (!SMTP_HOST || !SMTP_FROM || !Number.isInteger(port) || port<1 || port>65535 || Boolean(SMTP_USER)!==Boolean(SMTP_PASSWORD)) {
@@ -417,19 +418,50 @@ export const forgotPassword: RequestHandler = async(req,res)=>{
     const result = await transaction(async(client)=>{
       const existing = await client.query("SELECT id FROM users WHERE lower(email)=$1 AND is_active IS DISTINCT FROM FALSE FOR UPDATE",[parsed.data]);
       if (existing.rows.length!==1) return null;
-      const token=crypto.randomBytes(32).toString("base64url");
+      const token=crypto.randomBytes(32).toString("hex");
       issuedHash=hashAuthToken(token);
       await client.query("DELETE FROM password_reset_tokens WHERE user_id=$1",[String(existing.rows[0].id)]);
       await client.query("INSERT INTO password_reset_tokens (token_hash,user_id,expires_at,created_by) VALUES ($1,$2,$3,$4)",[issuedHash,String(existing.rows[0].id),new Date(Date.now()+RESET_MS),String(existing.rows[0].id)]);
       return token;
     });
-    if (result) await mail.transporter.sendMail({from:mail.from,to:parsed.data,subject:"Reset your EduLearnX password",
-      text:`Use this link to reset your EduLearnX password within 30 minutes:
+    if (result) {
+      const resetUrl = `${mail.appOrigin}/reset-password?token=${encodeURIComponent(result)}`;
+      const logoUrl = `${mail.appOrigin}/logo.png`;
+      await mail.transporter.sendMail({
+        from: mail.from,
+        to: parsed.data,
+        subject: "Reset your EduLearnX password",
+        text: `Hello,
 
-${mail.appOrigin}/reset-password?token=${encodeURIComponent(result)}
+We received a request to reset the password for your EduLearnX account.
 
-If you did not request this, you can ignore this email.`,
-    });
+Use this secure link to choose a new password. It expires in 30 minutes and can only be used once.
+
+${resetUrl}
+
+If you did not request this change, you can safely ignore this email. Your password will remain unchanged. Never forward this link or share its security code.
+
+EduLearnX
+${mail.appOrigin}
+
+This is an automated account-security message.`,
+        html: `<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset your EduLearnX password</title></head>
+<body style="margin:0;padding:32px 14px;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#172033;">
+<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:600px;margin:0 auto;background:#fff;border:1px solid #e5eaf2;border-radius:18px;overflow:hidden;">
+<tr><td align="center" style="padding:30px 24px 18px;"><a href="${mail.appOrigin}" style="text-decoration:none;"><img src="${logoUrl}" width="190" alt="EduLearnX" style="display:block;width:190px;max-width:75%;height:auto;border:0;"></a><p style="margin:18px 0 0;color:#64748b;font-size:12px;font-weight:700;letter-spacing:1.8px;">ACCOUNT SECURITY</p></td></tr>
+<tr><td style="padding:12px 34px 34px;"><h1 style="margin:0 0 14px;color:#14213d;font-size:27px;line-height:1.25;text-align:center;">Reset your password</h1>
+<p style="margin:0 0 22px;color:#475569;font-size:16px;line-height:1.7;">Hello,</p>
+<p style="margin:0 0 26px;color:#475569;font-size:16px;line-height:1.7;">We received a request to reset the password for your EduLearnX account. Select the button below to securely choose a new password.</p>
+<table role="presentation" cellspacing="0" cellpadding="0" align="center" style="margin:0 auto 24px;"><tr><td align="center" bgcolor="#263b80" style="border-radius:10px;"><a href="${resetUrl}" style="display:inline-block;padding:15px 30px;color:#fff;font-size:16px;font-weight:700;text-decoration:none;border-radius:10px;">Reset my password</a></td></tr></table>
+<p style="margin:0 0 10px;color:#64748b;font-size:14px;line-height:1.6;text-align:center;">This secure link expires in <strong>30 minutes</strong> and can only be used once.</p>
+<div style="margin:24px 0;padding:16px;background:#f8faff;border:1px solid #e5eaf2;border-radius:10px;"><p style="margin:0 0 8px;color:#334155;font-size:13px;font-weight:700;">Button not working?</p><p style="margin:0;color:#64748b;font-size:12px;line-height:1.6;word-break:break-all;">Copy and paste this link into your browser:<br><a href="${resetUrl}" style="color:#334e91;">${resetUrl}</a></p></div>
+<div style="padding:15px 17px;background:#fff8e8;border-radius:10px;color:#70521c;font-size:14px;line-height:1.6;">If you did not request a password reset, you can safely ignore this email. Your password will remain unchanged. Never forward this link or share its security code. EduLearnX staff will never ask you for it.</div></td></tr>
+<tr><td style="padding:20px 24px;background:#f8faff;border-top:1px solid #e8edf5;text-align:center;"><a href="${mail.appOrigin}" style="color:#334e91;font-size:14px;font-weight:700;text-decoration:none;">Visit EduLearnX</a><p style="margin:9px 0 0;color:#8994a7;font-size:12px;line-height:1.5;">Automated account-security email. Please do not reply.</p></td></tr>
+</table></body></html>`,
+      });
+    }
     return sendSuccess(res,null,"If an active account exists, a password reset email has been sent.");
   } catch(error) {
     if (issuedHash) { try { await query("DELETE FROM password_reset_tokens WHERE token_hash=$1",[issuedHash]); } catch { /* Token still expires after 30 minutes. */ } }

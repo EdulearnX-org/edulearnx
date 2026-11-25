@@ -8,6 +8,7 @@ import { idSchema, instantSchema } from "../../shared/validation.js";
 import jwt from "jsonwebtoken";
 import { query } from "../db/connection.js";
 import { isPrimaryAdmin, normalizeAdminPermissions } from "../../shared/adminPermissions.js";
+import { hasValidLiveClassDuration } from "../../shared/liveClassRules.js";
 
 const joinWindowMinutes = 5;
 
@@ -94,13 +95,8 @@ const scheduleSchema = z.object({
   scheduled_start: instantSchema, scheduled_end: instantSchema,
 }).strict();
 function validateWindow(start: string | Date, end: string | Date) {
-  const startTime = new Date(start).getTime();
-  const endTime = new Date(end).getTime();
-  if (!Number.isFinite(startTime) || !Number.isFinite(endTime) || startTime >= endTime) {
-    throw new HttpError(400, "End time must be after start time");
-  }
-  if (endTime - startTime !== 40 * 60 * 1000) {
-    throw new HttpError(400, "Every EduLearnX class must be exactly 40 minutes");
+  if (!hasValidLiveClassDuration(start, end)) {
+    throw new HttpError(400, "Every EduLearnX class must be exactly 40 minutes, with a valid end time");
   }
 }
 async function validateAssignment(client: PoolClient, actor: any, values: any) {

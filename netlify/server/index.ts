@@ -96,7 +96,9 @@ server.on("upgrade", (request, socket, head) => {
     const classId = match[1];
     const room = roomClients.get(classId) ?? new Set<RoomClient>();
     const existing = [...room].find((client) => client.user.id === user!.id);
-    if (!existing && room.size >= 3) {
+    const teacherAlreadyConnected = [...room].some((client) => client.user.role === "teacher" && user!.role === "teacher" && client.user.id !== user!.id);
+    const studentCount = [...room].filter((client) => client.user.role === "student" && client.user.id !== user!.id).length;
+    if (!existing && (room.size >= 3 || teacherAlreadyConnected || (user.role === "student" && studentCount >= 2))) {
       socket.write("HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n");
       socket.destroy();
       return;
@@ -139,6 +141,10 @@ server.on("upgrade", (request, socket, head) => {
         }
         const targetId = typeof message.targetId === "string" ? message.targetId : "";
         const target = targetId ? [...room].find((peer) => peer.user.id === targetId) : undefined;
+        if (message.type === "remove-request" && target?.user.role === "student") {
+          target.socket.close(4003, "Removed by the teacher");
+          return;
+        }
         const event = { ...message, userId: user!.id, name: user!.name };
         delete event.targetId;
         if (target) send(target, event);

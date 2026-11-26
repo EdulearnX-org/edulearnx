@@ -1,5 +1,5 @@
 import { getCurrentPortalUser, type PortalUser } from "@/lib/portalData";
-import { ArrowLeft, Check, Clock3, Crown, LogOut, MessageCircle, Mic, MicOff, MonitorUp, MoreVertical, Settings2, ShieldCheck, UserRound, Users, Volume2, X } from "lucide-react";
+import { Crown, LogOut, MessageCircle, Mic, MicOff, MonitorUp, Settings2, ShieldCheck, UserRound, Users, Volume2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
@@ -187,7 +187,6 @@ export function createClassroomConnection(options: ConnectionOptions) {
       for (const [peerId, pc] of peers) {
         const sender = pc.getTransceivers().find((item) => item.receiver.track.kind === "audio")?.sender;
         if (sender) await sender.replaceTrack(localAudio.getAudioTracks()[0]);
-        if (pc.signalingState === "stable") void negotiate(peerId, pc);
       }
     } else {
       localAudio?.getAudioTracks().forEach((track) => { track.enabled = false; });

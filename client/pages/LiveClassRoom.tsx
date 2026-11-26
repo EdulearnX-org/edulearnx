@@ -13,6 +13,7 @@ type ConnectionOptions = {
   onRoom: (participants: PeerInfo[]) => void;
   onChat: (message: ChatMessage) => void;
   onRemoteAudio: (userId: string, stream: MediaStream | null) => void;
+  onRemoteScreen: (userId: string, stream: MediaStream | null) => void;
   onNotice: (message: string) => void;
   onClosed: (message: string) => void;
 };
@@ -77,7 +78,11 @@ export function createClassroomConnection(options: ConnectionOptions) {
     };
     pc.ontrack = (event) => {
       if (event.track.kind === "audio") options.onRemoteAudio(peer.id, event.streams[0] ?? new MediaStream([event.track]));
-      if (event.track.kind === "video") options.onNotice(`${peer.name} is sharing their screen.`);
+      if (event.track.kind === "video") {
+        const screen = event.streams[0] ?? new MediaStream([event.track]);
+        options.onRemoteScreen(peer.id, screen);
+        event.track.addEventListener("ended", () => options.onRemoteScreen(peer.id, null), { once: true });
+      }
     };
     pc.onconnectionstatechange = () => {
       if (pc.connectionState === "failed") options.onNotice(`Audio connection to ${peer.name} failed. Try reconnecting.`);
@@ -238,6 +243,8 @@ export default function LiveClassRoom() {
   const connectionRef = useRef<ClassroomConnection | null>(null);
   const audioRefs = useRef(new Map<string, HTMLAudioElement>());
   const remoteStreams = useRef(new Map<string, MediaStream>());
+  const screenRefs = useRef(new Map<string, HTMLVideoElement>());
+  const [remoteScreens, setRemoteScreens] = useState<Record<string, MediaStream>>({});
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("Connecting to class…");
   const [course, setCourse] = useState("");
@@ -277,6 +284,15 @@ export default function LiveClassRoom() {
           element.srcObject = stream;
           if (stream) void element.play().catch(() => setNotice("Tap the microphone control once to enable audio playback."));
         }
+      },
+      onRemoteScreen: (peerId, stream) => {
+        setRemoteScreens((current) => {
+          const next = { ...current };
+          if (stream) next[peerId] = stream; else delete next[peerId];
+          return next;
+        });
+        const video = screenRefs.current.get(peerId);
+        if (video) { video.srcObject = stream; if (stream) void video.play().catch(() => undefined); }
       },
       onNotice: setNotice,
       onClosed: (message) => { if (!cancelled) setError(message); },
@@ -368,6 +384,7 @@ export default function LiveClassRoom() {
 
       <div className="mx-auto grid max-w-[1500px] gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section className="flex min-h-[72vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#111c34] via-[#0d1528] to-[#101b32] shadow-2xl">
+          {Object.entries(remoteScreens).length > 0 && <div className="border-b border-white/10 bg-black/30 p-3">{Object.entries(remoteScreens).map(([peerId, stream]) => <video key={peerId} autoPlay playsInline className="max-h-[55vh] w-full rounded-2xl bg-black object-contain" ref={(node) => { if (node) { screenRefs.current.set(peerId, node); node.srcObject = stream; void node.play().catch(() => undefined); } else screenRefs.current.delete(peerId); }} />)}</div>}
           <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
             <div className="relative flex h-32 w-32 items-center justify-center rounded-full border border-blue-300/20 bg-gradient-to-br from-blue-400/20 to-indigo-500/10 shadow-[0_0_70px_rgba(59,130,246,0.12)]">
               <UserRound className="h-14 w-14 text-blue-100" />

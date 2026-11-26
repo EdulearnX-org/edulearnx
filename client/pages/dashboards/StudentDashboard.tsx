@@ -1,5 +1,4 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import CourseJoinButton from "@/components/CourseJoinButton";
 import { courseDateRange, useCourses } from "@/hooks/useCourses";
 import { useStudentEnrollments } from "@/hooks/useStudentEnrollments";
 import { useStudentRewards } from "@/hooks/useStudentRewards";
@@ -408,7 +407,6 @@ export default function StudentDashboard({
                   {enrollment.is_completed ? "Review Course" : "Continue Learning"}
                 </Link>
               </div>
-              <CourseJoinButton courseId={enrollment.course_id} />
             </article>
             );
           })
@@ -481,7 +479,6 @@ export default function StudentDashboard({
                   {isEnrolled ? (
                     <div className="mt-5">
                       <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Enrolled</p>
-                      <CourseJoinButton courseId={course.id} />
                     </div>
                   ) : (
                     <Link

@@ -1,5 +1,4 @@
 import DashboardLayout from "@/components/DashboardLayout";
-import CourseZoomLinkEditor from "@/components/CourseZoomLinkEditor";
 import { courseDateRange, courseDuration, useCourses } from "@/hooks/useCourses";
 import {
   buildFiveWeekdayClassTimes,
@@ -218,7 +217,6 @@ export default function TeacherDashboard() {
                     <p className="mt-2 font-mono text-xs font-bold tracking-wide text-blue-700 dark:text-blue-300">
                       Meeting ID: {course.meeting_id || "Preparing meeting..."}
                     </p>
-                    <CourseZoomLinkEditor courseId={course.id} />
                   </div>
                 ))
               )}

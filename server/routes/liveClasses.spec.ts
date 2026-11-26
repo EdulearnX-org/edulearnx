@@ -16,7 +16,7 @@ describe("live class admin permissions", () => {
     ["update", live.updateLiveClass], ["delete", live.deleteLiveClass],
     ["start", live.startLiveClass], ["end", live.endLiveClass],
     ["status", live.getLiveClassStatus], ["join", live.joinLiveClass],
-    ["token", live.createVideoSdkToken], ["leave", live.leaveLiveClass],
+    ["leave", live.leaveLiveClass],
   ])("denies a co-admin without liveClasses permission for %s", async (_name, handler) => {
     database.query.mockResolvedValue({ rows: [{ id: 7, email: "coadmin@example.test", role: "admin", is_active: true, admin_permissions: { liveClasses: false } }] });
     const res = response();

@@ -4,17 +4,18 @@ publish = "dist/spa"
 functions = "netlify/functions"
 
 [build.environment]
-NODE_VERSION = "22.12.0"
+NODE_VERSION = "24"
 
 [functions]
 node_bundler = "esbuild"
 
-[[redirects]]
-from = "/api/*"
-to = "/.netlify/functions/api/:splat"
-status = 200
+# Netlify Server owns dynamic routes and the /api/* backend. Static assets are
+# served by Netlify's CDN before requests reach this persistent Node server.
+[server]
+path = "/*"
+region = "fra"
+size = "small"
 
-[[redirects]]
-from = "/*"
-to = "/index.html"
-status = 200
+[server.scale]
+min = 0
+max = 1

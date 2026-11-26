@@ -1,6 +1,6 @@
 import { getCurrentPortalUser, type PortalUser } from "@/lib/portalData";
 import { ArrowLeft, Check, Clock3, Crown, LogOut, MessageCircle, Mic, MicOff, MonitorUp, MoreVertical, Settings2, ShieldCheck, UserRound, Users, Volume2, X } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 type PeerInfo = { id: string; name: string; role: "teacher" | "student" };
@@ -237,6 +237,7 @@ export default function LiveClassRoom() {
   const user = getCurrentPortalUser();
   const connectionRef = useRef<ClassroomConnection | null>(null);
   const audioRefs = useRef(new Map<string, HTMLAudioElement>());
+  const remoteStreams = useRef(new Map<string, MediaStream>());
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const [title, setTitle] = useState("Connecting to class…");
   const [course, setCourse] = useState("");
@@ -269,6 +270,8 @@ export default function LiveClassRoom() {
       onRoom: setParticipants,
       onChat: (message) => setMessages((current) => [...current, message].slice(-100)),
       onRemoteAudio: (peerId, stream) => {
+        if (stream) remoteStreams.current.set(peerId, stream);
+        else remoteStreams.current.delete(peerId);
         const element = audioRefs.current.get(peerId);
         if (element) {
           element.srcObject = stream;
@@ -319,7 +322,7 @@ export default function LiveClassRoom() {
   const runAction = async (action: () => Promise<void>) => {
     try { await action(); } catch (reason) { setNotice(reason instanceof Error ? reason.message : "The action could not be completed."); }
   };
-  const submitChat = (event: React.FormEvent) => {
+  const submitChat = (event: FormEvent) => {
     event.preventDefault();
     const value = chatText.trim();
     if (!value) return;
@@ -410,8 +413,7 @@ export default function LiveClassRoom() {
       </div>
 
       {notice && <div role="status" className="fixed bottom-5 left-1/2 z-30 flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-2xl border border-white/10 bg-[#1a2740] px-4 py-3 text-sm text-slate-100 shadow-2xl"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss" className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></button></div>}
-      <div className="hidden"><audio autoPlay playsInline ref={(node) => { if (node) for (const [peerId, stream] of audioRefs.current) { const element = node; if (peerId) element.srcObject = stream; } }} /></div>
-      {participants.map((person) => <audio key={person.id} autoPlay playsInline ref={(node) => { if (node) audioRefs.current.set(person.id, node); else audioRefs.current.delete(person.id); }} />)}
+      {participants.map((person) => <audio key={person.id} autoPlay playsInline ref={(node) => { if (node) { audioRefs.current.set(person.id, node); const stream = remoteStreams.current.get(person.id); if (stream) { node.srcObject = stream; void node.play().catch(() => setNotice("Tap the microphone control once to enable audio playback.")); } } else audioRefs.current.delete(person.id); }} />)}
     </main>
   );
 }

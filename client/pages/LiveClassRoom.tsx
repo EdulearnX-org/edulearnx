@@ -1,52 +1,34 @@
 import { getCurrentPortalUser, type PortalUser } from "@/lib/portalData";
-import type { LiveClassJoinResponse } from "@shared/api";
-import type { Participant } from "@zoom/videosdk";
-import { Camera, CameraOff, Crown, LogOut, Mic, MicOff, MonitorUp, ShieldCheck, UserRound, Users, Video, VolumeX, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { ArrowLeft, Check, Clock3, Crown, LogOut, MessageCircle, Mic, MicOff, MonitorUp, MoreVertical, Settings2, ShieldCheck, UserRound, Users, Volume2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-const VideoPlayerContainer = "video-player-container" as any;
-type ZoomSdk = typeof import("@zoom/videosdk");
-type ZoomClient = ReturnType<ZoomSdk["default"]["createClient"]>;
-type ZoomStream = ReturnType<ZoomClient["getMediaStream"]>;
+type PeerInfo = { id: string; name: string; role: "teacher" | "student" };
+type ChatMessage = { id: string; userId: string; name: string; text: string; sentAt: string };
+type RoomState = { type: "room-state"; self: PeerInfo; participants: PeerInfo[] };
 
 type ConnectionOptions = {
   classId: string;
   user: Pick<PortalUser, "id" | "name" | "role">;
-  videoMount: () => HTMLElement | null;
-  shareMount: () => HTMLElement | null;
-  onJoined: (data: LiveClassJoinResponse) => void;
-  onParticipants: (users: Participant[], ownId: number, isHost: boolean) => void;
-  onReady: () => void;
-  onShare: (sharing: boolean) => void;
-  onMicrophone: (enabled: boolean) => void;
+  onRoom: (participants: PeerInfo[]) => void;
+  onChat: (message: ChatMessage) => void;
+  onRemoteAudio: (userId: string, stream: MediaStream | null) => void;
   onNotice: (message: string) => void;
-  onError: (message: string) => void;
-  request?: typeof fetch;
-  loadSdk?: () => Promise<ZoomSdk>;
+  onClosed: (message: string) => void;
 };
 
-/** Owns one session so late requests and SDK joins cannot outlive their component. */
 export function createClassroomConnection(options: ConnectionOptions) {
-  const request = options.request ?? fetch;
+  let attendanceId: string | number | null = null;
   let stopped = false;
-  let attendanceId: number | null = null;
-  let attendanceLeft = false;
-  let client: ZoomClient | undefined;
-  let stream: ZoomStream | undefined;
-  let sdk: ZoomSdk | undefined;
-  let connected = false;
-  let audioStarted = false;
-  let sharing = false;
-  const listeners: Array<[string, (payload: any) => void]> = [];
-  const videos = new Map<number, HTMLElement>();
-  const videoVersions = new Map<number, number>();
-  let sharePlayer: HTMLElement | undefined;
-  let viewedShareId: number | undefined;
-  let shareVersion = 0;
+  let socket: WebSocket | null = null;
+  let localAudio: MediaStream | null = null;
+  let displayStream: MediaStream | null = null;
+  const peers = new Map<string, RTCPeerConnection>();
+  const participants = new Map<string, PeerInfo>();
+  const pendingIce = new Map<string, RTCIceCandidateInit[]>();
 
-  async function api(path: string, body?: unknown) {
-    const response = await request(`/api/live-classes/${options.classId}/${path}`, {
+  async function api(action: string, body?: unknown) {
+    const response = await fetch(`/api/live-classes/${options.classId}/${action}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -56,301 +38,380 @@ export function createClassroomConnection(options: ConnectionOptions) {
     return payload.data;
   }
 
-  async function leaveAttendance() {
-    if (attendanceId === null || attendanceLeft) return;
-    attendanceLeft = true;
-    try { await api("leave", { attendance_id: attendanceId }); } catch { /* Server also closes attendance when the class ends. */ }
+  function send(message: Record<string, unknown>) {
+    if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }
 
-  async function detachVideo(userId: number) {
-    videoVersions.set(userId, (videoVersions.get(userId) ?? 0) + 1);
-    videos.get(userId)?.remove();
-    videos.delete(userId);
-    if (stream) await stream.detachVideo(userId).catch(() => undefined);
+  function publishParticipants() {
+    options.onRoom([...participants.values()]);
   }
 
-  async function attachVideo(userId: number) {
-    if (!stream || !sdk || stopped || videos.has(userId)) return;
-    const version = (videoVersions.get(userId) ?? 0) + 1;
-    videoVersions.set(userId, version);
-    const player = await stream.attachVideo(userId, sdk.VideoQuality.Video_360P);
-    if (!player || !("nodeType" in player)) return;
-    if (stopped || videoVersions.get(userId) !== version) { player.remove(); return; }
-    videos.set(userId, player);
-    options.videoMount()?.appendChild(player);
-  }
-
-  async function updateShare(userId?: number) {
-    const version = ++shareVersion;
-    sharePlayer?.remove();
-    sharePlayer = undefined;
-    if (!stream) return;
-    if (viewedShareId !== undefined) await stream.detachShareView(viewedShareId).catch(() => undefined);
-    viewedShareId = undefined;
-    if (!userId || stopped || userId === client?.getCurrentUserInfo().userId) return;
-    const player = await stream.attachShareView(userId);
-    if (!player || !("nodeType" in player)) return;
-    if (stopped || shareVersion !== version) { player.remove(); return; }
-    sharePlayer = player;
-    viewedShareId = userId;
-    options.shareMount()?.appendChild(player);
-  }
-
-  function updateParticipants() {
-    if (!client || stopped) return;
-    const own = client.getCurrentUserInfo();
-    options.onParticipants([...client.getAllUser()], own.userId, client.isHost());
-    options.onMicrophone(own.muted === false && audioStarted);
-  }
-
-  async function stop() {
-    stopped = true;
-    for (const [event, listener] of listeners.splice(0)) client?.off(event, listener);
-    for (const id of [...videos.keys()]) await detachVideo(id);
-    ++shareVersion;
-    sharePlayer?.remove();
-    sharePlayer = undefined;
-    if (stream) {
-      if (viewedShareId !== undefined) await stream.detachShareView(viewedShareId).catch(() => undefined);
-      viewedShareId = undefined;
-      if (sharing) await stream.stopShareScreen().catch(() => undefined);
-      sharing = false;
-    }
-    if (client && connected) {
-      connected = false;
-      await client.leave().catch(() => undefined);
-    }
-    await leaveAttendance();
-  }
-
-  const ready = (async () => {
+  async function negotiate(peerId: string, pc: RTCPeerConnection) {
+    if (stopped || pc.signalingState !== "stable") return;
     try {
-      // The server validates the actor; no user ID or role from the browser is trusted.
-      if (options.user.role === "teacher") await api("start");
-      if (stopped) return;
-      const joined = await api("join") as LiveClassJoinResponse;
-      attendanceId = joined.attendance.id;
-      if (stopped) { await leaveAttendance(); return; }
-      options.onJoined(joined);
-      const token = await api("video-sdk-token");
-      if (stopped) return;
-      sdk = await (options.loadSdk ?? (() => import("@zoom/videosdk")))();
-      if (stopped) return;
-      client = sdk.default.createClient();
-      await client.init("en-US", "Global", { patchJsMedia: true, stayAwake: true, leaveOnPageUnload: true });
-      if (stopped) return;
-      await client.join(token.topic, token.token, options.user.name);
-      connected = true;
-      stream = client.getMediaStream();
-      if (stopped) { await stop(); return; }
-      function listen(event: string, listener: (payload: any) => void) {
-        // Event names and payloads match the installed Video SDK API.
-        (client!.on as (event: string, listener: (payload: any) => void) => void)(event, listener);
-        listeners.push([event, listener]);
-      }
-      const mediaFailure = () => { if (!stopped) options.onNotice("A participant's video could not be displayed."); };
-      listen("user-added", updateParticipants);
-      listen("user-updated", updateParticipants);
-      listen("user-removed", (users: Array<{ userId: number }>) => {
-        updateParticipants();
-        for (const user of users) void detachVideo(user.userId);
-      });
-      listen("peer-video-state-change", ({ userId, action }: { userId: number; action: string }) => {
-        void (action === "Start" ? attachVideo(userId) : detachVideo(userId)).catch(mediaFailure);
-        updateParticipants();
-      });
-      listen("active-share-change", ({ state, userId }: { state: string; userId: number }) => {
-        void updateShare(state === "Active" ? userId : undefined).catch(mediaFailure);
-      });
-      listen("passively-stop-share", () => { sharing = false; options.onShare(false); });
-      listen("connection-change", ({ state, reason }: { state: string; reason?: string }) => {
-        if (!stopped && (state === "Closed" || state === "Fail")) {
-          void stop();
-          options.onError(reason || "The meeting has ended.");
-        }
-      });
-      updateParticipants();
-      await Promise.all(client.getAllUser().filter((user) => user.bVideoOn).map((user) => attachVideo(user.userId).catch(mediaFailure)));
-      await updateShare(stream.getActiveShareUserId()).catch(mediaFailure);
-      try {
-        // Join audio muted so students can hear the teacher without broadcasting.
-        await stream.startAudio({ mute: true });
-        audioStarted = true;
-      } catch {
-        if (!stopped) options.onNotice("Use Microphone to connect audio if your browser blocked automatic playback.");
-      }
-      if (stopped) { await stop(); return; }
-      options.onReady();
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      send({ type: "offer", targetId: peerId, description: pc.localDescription });
     } catch (error) {
-      if (!stopped) options.onError(error instanceof Error ? error.message : "Unable to join live class.");
-      await stop();
+      options.onNotice(error instanceof Error ? error.message : "Could not establish the audio connection.");
     }
-  })();
-
-  function requireMedia() {
-    if (!stream || !client || !connected || stopped) throw new Error("The meeting is still connecting.");
-    return { stream, client };
   }
 
-  return {
-    ready, stop,
-    async setCamera(enabled: boolean) {
-      const { stream, client } = requireMedia();
-      if (enabled) { await stream.startVideo(); await attachVideo(client.getCurrentUserInfo().userId); }
-      else { await stream.stopVideo(); await detachVideo(client.getCurrentUserInfo().userId); }
-    },
-    async setMicrophone(enabled: boolean) {
-      const { stream } = requireMedia();
-      if (!audioStarted) { await stream.startAudio({ mute: !enabled }); audioStarted = true; }
-      else if (enabled) await stream.unmuteAudio();
-      else await stream.muteAudio();
-      options.onMicrophone(enabled);
-    },
-    async setScreenShare(enabled: boolean, canvas: HTMLCanvasElement, video?: HTMLVideoElement) {
-      const { stream } = requireMedia();
-      const useVideo = stream.isStartShareScreenWithVideoElement();
-      const surface = useVideo ? video : canvas;
-      if (!surface) throw new Error("The screen sharing preview is unavailable.");
-      if (enabled) await stream.startShareScreen(surface);
-      else await stream.stopShareScreen();
-      sharing = enabled;
-      options.onShare(enabled);
-      return useVideo;
-    },
-    async muteAll() { await requireMedia().stream.muteAllAudio(); },
-    async muteParticipant(userId: number) { await requireMedia().stream.muteAudio(userId); },
-    async removeParticipant(userId: number) { await requireMedia().client.removeUser(userId); },
-    async end() {
-      const { client } = requireMedia();
-      await api("end");
-      stopped = true;
-      for (const [event, listener] of listeners.splice(0)) client.off(event, listener);
-      connected = false;
-      try { await client.leave(true); } finally { await stop(); }
-    },
-  };
+  function createPeer(peer: PeerInfo) {
+    if (peers.has(peer.id) || stopped) return peers.get(peer.id);
+    participants.set(peer.id, peer);
+    const pc = new RTCPeerConnection({
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    });
+    // Audio is bidirectional; only the teacher is allowed to send a screen track.
+    const audio = pc.addTransceiver("audio", { direction: "sendrecv" });
+    if (options.user.role === "teacher") pc.addTransceiver("video", { direction: "sendrecv" });
+    else pc.addTransceiver("video", { direction: "recvonly" });
+    if (localAudio?.getAudioTracks()[0]) void audio.sender.replaceTrack(localAudio.getAudioTracks()[0]);
+    if (displayStream?.getVideoTracks()[0] && options.user.role === "teacher") {
+      const video = pc.getTransceivers().find((item) => item.receiver.track.kind === "video");
+      if (video) void video.sender.replaceTrack(displayStream.getVideoTracks()[0]);
+    }
+    pc.onicecandidate = (event) => {
+      if (event.candidate) send({ type: "ice-candidate", targetId: peer.id, candidate: event.candidate.toJSON() });
+    };
+    pc.ontrack = (event) => {
+      if (event.track.kind === "audio") options.onRemoteAudio(peer.id, event.streams[0] ?? new MediaStream([event.track]));
+      if (event.track.kind === "video") options.onNotice(`${peer.name} is sharing their screen.`);
+    };
+    pc.onconnectionstatechange = () => {
+      if (pc.connectionState === "failed") options.onNotice(`Audio connection to ${peer.name} failed. Try reconnecting.`);
+    };
+    peers.set(peer.id, pc);
+    publishParticipants();
+    // Stable deterministic offerer prevents both ends creating an offer at once.
+    if (String(options.user.id).localeCompare(peer.id, undefined, { numeric: true }) < 0) void negotiate(peer.id, pc);
+    return pc;
+  }
+
+  async function handleSignal(message: any) {
+    if (!message || typeof message.type !== "string") return;
+    if (message.type === "room-state") {
+      const state = message as RoomState;
+      for (const peer of state.participants ?? []) createPeer(peer);
+      publishParticipants();
+      return;
+    }
+    if (message.type === "participant-joined" && message.participant) {
+      createPeer(message.participant as PeerInfo);
+      return;
+    }
+    if (message.type === "participant-left") {
+      const peerId = String(message.userId);
+      peers.get(peerId)?.close();
+      peers.delete(peerId);
+      participants.delete(peerId);
+      options.onRemoteAudio(peerId, null);
+      publishParticipants();
+      return;
+    }
+    if (message.type === "chat") {
+      options.onChat(message as ChatMessage);
+      return;
+    }
+    if (message.type === "mute-request" && String(message.targetId ?? options.user.id) === String(options.user.id)) {
+      localAudio?.getAudioTracks().forEach((track) => { track.enabled = false; });
+      options.onNotice("The teacher muted your microphone.");
+      return;
+    }
+    if (message.type === "screen-share-state") {
+      options.onNotice(message.enabled ? "The teacher started sharing their screen." : "Screen sharing ended.");
+      return;
+    }
+    if (message.type === "offer" || message.type === "answer" || message.type === "ice-candidate") {
+      const peerId = String(message.userId);
+      const peer = participants.get(peerId) ?? { id: peerId, name: message.name || "Participant", role: "student" as const };
+      const pc = createPeer(peer);
+      if (!pc) return;
+      try {
+        if (message.type === "offer" && message.description) {
+          if (pc.signalingState !== "stable") await pc.setLocalDescription({ type: "rollback" });
+          await pc.setRemoteDescription(message.description);
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          send({ type: "answer", targetId: peerId, description: pc.localDescription });
+          for (const candidate of pendingIce.get(peerId) ?? []) await pc.addIceCandidate(candidate);
+          pendingIce.delete(peerId);
+        } else if (message.type === "answer" && message.description) {
+          await pc.setRemoteDescription(message.description);
+          for (const candidate of pendingIce.get(peerId) ?? []) await pc.addIceCandidate(candidate);
+          pendingIce.delete(peerId);
+        } else if (message.type === "ice-candidate" && message.candidate) {
+          if (pc.remoteDescription) await pc.addIceCandidate(message.candidate);
+          else pendingIce.set(peerId, [...(pendingIce.get(peerId) ?? []), message.candidate]);
+        }
+      } catch (error) {
+        options.onNotice(error instanceof Error ? error.message : "A classroom connection could not be negotiated.");
+      }
+    }
+  }
+
+  async function start() {
+    if (options.user.role === "teacher") await api("start");
+    const joined = await api("join");
+    attendanceId = joined.attendance?.id ?? null;
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    socket = new WebSocket(`${protocol}//${window.location.host}/realtime/live-classes/${options.classId}`);
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error("The classroom server did not respond in time.")), 12000);
+      socket!.addEventListener("open", () => { window.clearTimeout(timeout); resolve(); }, { once: true });
+      socket!.addEventListener("error", () => { window.clearTimeout(timeout); reject(new Error("Could not connect to the classroom server.")); }, { once: true });
+    });
+    socket.addEventListener("message", (event) => {
+      try { void handleSignal(JSON.parse(String(event.data))); } catch { /* Ignore malformed server events. */ }
+    });
+    socket.addEventListener("close", (event) => {
+      if (!stopped) options.onClosed(event.code === 4003 ? "The teacher removed you from this class." : "Your classroom connection was closed. Please rejoin.");
+    });
+    return joined;
+  }
+
+  async function setMicrophone(enabled: boolean) {
+    if (enabled) {
+      if (!localAudio) localAudio = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }, video: false });
+      localAudio.getAudioTracks().forEach((track) => { track.enabled = true; });
+      for (const [peerId, pc] of peers) {
+        const sender = pc.getTransceivers().find((item) => item.receiver.track.kind === "audio")?.sender;
+        if (sender) await sender.replaceTrack(localAudio.getAudioTracks()[0]);
+        if (pc.signalingState === "stable") void negotiate(peerId, pc);
+      }
+    } else {
+      localAudio?.getAudioTracks().forEach((track) => { track.enabled = false; });
+    }
+    send({ type: "microphone-state", enabled });
+  }
+
+  async function setScreenShare(enabled: boolean) {
+    if (options.user.role !== "teacher") throw new Error("Only the teacher can share a screen.");
+    if (enabled) {
+      displayStream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 10 }, audio: false });
+      const track = displayStream.getVideoTracks()[0];
+      track.addEventListener("ended", () => { void setScreenShare(false); }, { once: true });
+      for (const [peerId, pc] of peers) {
+        const sender = pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
+        if (sender) await sender.replaceTrack(track);
+        if (pc.signalingState === "stable") void negotiate(peerId, pc);
+      }
+    } else {
+      displayStream?.getTracks().forEach((track) => track.stop());
+      displayStream = null;
+      for (const [peerId, pc] of peers) {
+        const sender = pc.getTransceivers().find((item) => item.receiver.track.kind === "video")?.sender;
+        if (sender) await sender.replaceTrack(null);
+      }
+    }
+    send({ type: "screen-share-state", enabled });
+  }
+
+  function sendChat(text: string) { send({ type: "chat", text }); }
+  function muteParticipant(userId: string) { send({ type: "mute-request", targetId: userId }); }
+  function removeParticipant(userId: string) { send({ type: "remove-request", targetId: userId }); }
+
+  async function endClass() { await api("end"); await stop(); }
+  async function stop() {
+    if (stopped) return;
+    stopped = true;
+    socket?.close(1000, "Leaving class");
+    peers.forEach((pc) => pc.close());
+    peers.clear();
+    localAudio?.getTracks().forEach((track) => track.stop());
+    displayStream?.getTracks().forEach((track) => track.stop());
+    if (attendanceId !== null) {
+      try { await api("leave", { attendance_id: attendanceId }); } catch { /* Attendance is also closed when the class ends. */ }
+    }
+  }
+
+  return { start, setMicrophone, setScreenShare, sendChat, muteParticipant, removeParticipant, endClass, stop };
 }
 
 type ClassroomConnection = ReturnType<typeof createClassroomConnection>;
 
 export default function LiveClassRoom() {
-  const { id } = useParams();
+  const { id = "" } = useParams();
   const navigate = useNavigate();
-  const currentUser = getCurrentPortalUser();
-  const userId = currentUser?.id;
-  const userName = currentUser?.name ?? "";
-  const userRole = currentUser?.role;
-  const videoMountRef = useRef<HTMLDivElement | null>(null);
-  const shareMountRef = useRef<HTMLDivElement | null>(null);
-  const shareSurfaceRef = useRef<HTMLCanvasElement | null>(null);
-  const shareVideoRef = useRef<HTMLVideoElement | null>(null);
+  const user = getCurrentPortalUser();
   const connectionRef = useRef<ClassroomConnection | null>(null);
-  const [joinData, setJoinData] = useState<LiveClassJoinResponse | null>(null);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [ready, setReady] = useState(false);
-  const [cameraOn, setCameraOn] = useState(false);
+  const audioRefs = useRef(new Map<string, HTMLAudioElement>());
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const [title, setTitle] = useState("Connecting to class…");
+  const [course, setCourse] = useState("");
+  const [participants, setParticipants] = useState<PeerInfo[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [chatText, setChatText] = useState("");
   const [micOn, setMicOn] = useState(false);
-  const [screenSharing, setScreenSharing] = useState(false);
-  const [shareUsesVideo, setShareUsesVideo] = useState(false);
-  const [participants, setParticipants] = useState<Participant[]>([]);
-  const [ownZoomId, setOwnZoomId] = useState<number | null>(null);
-  const [isHost, setIsHost] = useState(false);
+  const [sharing, setSharing] = useState(false);
+  const [ready, setReady] = useState(false);
+  const [panel, setPanel] = useState<"participants" | "chat">("participants");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [startedAt, setStartedAt] = useState<number | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  const isTeacher = user?.role === "teacher";
+  const ownId = String(user?.id ?? "");
+  const leavePath = useMemo(() => user?.role === "student" ? "/student/live-classes" : "/teacher", [user?.role]);
 
   useEffect(() => {
-    if (!id || userId === undefined || !userRole) {
+    if (!id || !user || !["teacher", "student"].includes(user.role)) {
       navigate("/signin", { replace: true });
       return;
     }
-    setReady(false);
-    setError("");
-    setCameraOn(false);
-    setMicOn(false);
-    setScreenSharing(false);
+    let cancelled = false;
     const connection = createClassroomConnection({
-      classId: id, user: { id: userId, name: userName, role: userRole },
-      videoMount: () => videoMountRef.current, shareMount: () => shareMountRef.current,
-      onJoined: setJoinData, onReady: () => setReady(true), onShare: setScreenSharing,
-      onMicrophone: setMicOn, onNotice: setNotice, onError: setError,
-      onParticipants: (users, ownId, host) => { setParticipants(users); setOwnZoomId(ownId); setIsHost(host); },
+      classId: id,
+      user: { id: user.id, name: user.name, role: user.role as "teacher" | "student" },
+      onRoom: setParticipants,
+      onChat: (message) => setMessages((current) => [...current, message].slice(-100)),
+      onRemoteAudio: (peerId, stream) => {
+        const element = audioRefs.current.get(peerId);
+        if (element) {
+          element.srcObject = stream;
+          if (stream) void element.play().catch(() => setNotice("Tap the microphone control once to enable audio playback."));
+        }
+      },
+      onNotice: setNotice,
+      onClosed: (message) => { if (!cancelled) setError(message); },
     });
     connectionRef.current = connection;
+    void connection.start().then((joined) => {
+      if (cancelled) return;
+      setTitle(joined.live_class?.title || "Live class");
+      setCourse(joined.live_class?.course_title || "");
+      setStartedAt(joined.live_class?.started_at ? new Date(joined.live_class.started_at).getTime() : Date.now());
+      setReady(true);
+    }).catch((reason) => {
+      if (!cancelled) setError(reason instanceof Error ? reason.message : "Unable to join this class.");
+    });
     return () => {
-      if (connectionRef.current === connection) connectionRef.current = null;
+      cancelled = true;
+      connectionRef.current = null;
       void connection.stop();
     };
-  }, [id, userId, userName, userRole, navigate]);
+  }, [id, user?.id, user?.name, user?.role, navigate]);
 
-  const perform = async (action: (connection: ClassroomConnection) => Promise<void>, success?: string) => {
-    if (!connectionRef.current) return;
-    try { await action(connectionRef.current); if (success) setNotice(success); }
-    catch (err) { setNotice(err instanceof Error ? err.message : "The meeting action failed."); }
+  useEffect(() => {
+    if (!startedAt) return;
+    const update = () => setElapsed(Math.max(0, Math.floor((Date.now() - startedAt) / 1000)));
+    update();
+    const timer = window.setInterval(update, 1000);
+    return () => window.clearInterval(timer);
+  }, [startedAt]);
+
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const formatTime = (seconds: number) => `${String(Math.floor(seconds / 60)).padStart(2, "0")}:${String(seconds % 60).padStart(2, "0")}`;
+  const leave = useCallback(async () => {
+    await connectionRef.current?.stop();
+    navigate(leavePath, { replace: true });
+  }, [leavePath, navigate]);
+  const endClass = useCallback(async () => {
+    try {
+      await connectionRef.current?.endClass();
+      navigate(leavePath, { replace: true });
+    } catch (reason) { setNotice(reason instanceof Error ? reason.message : "Unable to end the class."); }
+  }, [leavePath, navigate]);
+  const runAction = async (action: () => Promise<void>) => {
+    try { await action(); } catch (reason) { setNotice(reason instanceof Error ? reason.message : "The action could not be completed."); }
   };
-  const leaveRoom = () => navigate(userRole === "student" ? "/student/live-classes" : userRole === "admin" ? "/admin/live-classes" : "/teacher", { replace: true });
+  const submitChat = (event: React.FormEvent) => {
+    event.preventDefault();
+    const value = chatText.trim();
+    if (!value) return;
+    connectionRef.current?.sendChat(value);
+    setChatText("");
+  };
 
   if (error) return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-white">
-      <div className="max-w-md rounded-2xl border border-white/10 bg-white/10 p-6 text-center">
-        <Video className="mx-auto mb-4 h-10 w-10 text-red-200" />
-        <p className="font-semibold">{error}</p>
-        <button onClick={leaveRoom} className="mt-5 rounded-xl bg-white px-4 py-2 text-sm font-bold text-slate-950">Back to classes</button>
+    <main className="flex min-h-screen items-center justify-center bg-[#080d1b] p-6 text-white">
+      <div className="w-full max-w-md rounded-3xl border border-white/10 bg-white/[0.06] p-8 text-center shadow-2xl">
+        <div className="mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-red-500/15 text-red-300"><X className="h-7 w-7" /></div>
+        <h1 className="text-xl font-bold">Unable to join the classroom</h1>
+        <p className="mt-3 text-sm leading-6 text-slate-300">{error}</p>
+        <button onClick={() => navigate(leavePath, { replace: true })} className="mt-6 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-slate-900">Back to my classes</button>
       </div>
     </main>
   );
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
-      <header className="border-b border-white/10 bg-slate-900 px-4 py-4">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="text-sm font-semibold text-blue-200">Live Class</p>
-            <h1 className="text-2xl font-bold">{joinData?.live_class.title || "Joining..."}</h1>
-            <p className="text-sm text-slate-400">{joinData?.live_class.course_title}</p>
-            <p className="mt-1 flex items-center gap-1.5 text-xs font-bold text-blue-200">
-              {isHost ? <Crown className="h-3.5 w-3.5" /> : <UserRound className="h-3.5 w-3.5" />}
-              {ready ? isHost ? "You are the meeting host" : "You joined as a participant" : "Connecting to the meeting..."}
-            </p>
+    <main className="min-h-screen bg-[#080d1b] text-white">
+      <header className="border-b border-white/10 bg-[#0d1426]/95 px-4 py-3 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <img src="/logo.png" alt="EduLearnX" className="h-10 w-10 rounded-xl object-contain" />
+            <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-300">EduLearnX Classroom</p><h1 className="truncate text-base font-bold sm:text-lg">{title}</h1><p className="truncate text-xs text-slate-400">{course}</p></div>
           </div>
-          <div className="flex gap-2">
-            {isHost && <button disabled={!ready} onClick={() => void perform(async (connection) => { await connection.end(); leaveRoom(); })} className="rounded-xl bg-red-700 px-4 py-2 text-sm font-bold">End class for everyone</button>}
-            <button onClick={leaveRoom} className="inline-flex items-center justify-center gap-2 rounded-xl bg-red-500 px-4 py-2 text-sm font-bold"><LogOut className="h-4 w-4" /> Leave</button>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-4">
+            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300 sm:flex"><span className="h-2 w-2 rounded-full bg-emerald-400" />{ready ? "Connected" : "Connecting"}</div>
+            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-right"><p className="text-[10px] uppercase tracking-wider text-slate-400">Class time</p><p className="font-mono text-sm font-semibold">{formatTime(elapsed)} <span className="text-[10px] font-normal text-slate-500">/ 40:00</span></p></div>
+            {isTeacher && <div className="relative">
+              <button onClick={() => setSettingsOpen((open) => !open)} aria-label="Class settings" className="rounded-xl border border-white/10 bg-white/[0.05] p-2.5 hover:bg-white/10"><Settings2 className="h-5 w-5" /></button>
+              {settingsOpen && <div className="absolute right-0 top-12 z-20 w-64 rounded-2xl border border-white/10 bg-[#151f35] p-3 shadow-2xl">
+                <p className="px-2 pb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">Teacher settings</p>
+                <button onClick={() => { void runAction(async () => { await connectionRef.current?.setMicrophone(!micOn); setMicOn(!micOn); }); setSettingsOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/10">{micOn ? <MicOff className="h-4 w-4" /> : <Mic className="h-4 w-4" />} {micOn ? "Mute my microphone" : "Turn on microphone"}</button>
+                <button onClick={() => { void runAction(async () => { await connectionRef.current?.setScreenShare(!sharing); setSharing(!sharing); }); setSettingsOpen(false); }} className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm hover:bg-white/10"><MonitorUp className="h-4 w-4" />{sharing ? "Stop screen sharing" : "Share my screen"}</button>
+                <p className="px-3 pt-2 text-[11px] leading-5 text-slate-500">Audio-only classroom. Camera is disabled for everyone.</p>
+              </div>}
+            </div>}
+            <button onClick={() => void leave()} className="inline-flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-white/10"><LogOut className="h-4 w-4" /><span className="hidden sm:inline">Leave</span></button>
           </div>
         </div>
       </header>
-      <div className="mx-auto grid max-w-7xl gap-5 p-4 lg:grid-cols-[1fr_340px]">
-        <section className="space-y-4">
-          <div className="min-h-48 rounded-2xl border border-white/10 bg-black p-2">
-            <VideoPlayerContainer class="block min-h-48 w-full"><div ref={videoMountRef} className="grid min-h-48 grid-cols-1 gap-2 sm:grid-cols-2 [&_video-player]:h-full [&_video-player]:min-h-48 [&_video-player]:w-full" /></VideoPlayerContainer>
+
+      <div className="mx-auto grid max-w-[1500px] gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <section className="flex min-h-[72vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#111c34] via-[#0d1528] to-[#101b32] shadow-2xl">
+          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
+            <div className="relative flex h-32 w-32 items-center justify-center rounded-full border border-blue-300/20 bg-gradient-to-br from-blue-400/20 to-indigo-500/10 shadow-[0_0_70px_rgba(59,130,246,0.12)]">
+              <UserRound className="h-14 w-14 text-blue-100" />
+              <span className="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border-4 border-[#111c34] bg-emerald-400 text-[#071326]"><Volume2 className="h-4 w-4" /></span>
+            </div>
+            <p className="mt-6 text-xl font-bold">{user?.name || "Participant"}</p>
+            <p className="mt-1 text-sm text-slate-400">{isTeacher ? "Your classroom is live" : "You are in the classroom"}</p>
+            <div className="mt-8 flex flex-wrap justify-center gap-3">
+              <button disabled={!ready} onClick={() => void runAction(async () => { await connectionRef.current?.setMicrophone(!micOn); setMicOn(!micOn); })} className={`inline-flex items-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition ${micOn ? "bg-blue-500 text-white shadow-lg shadow-blue-500/20" : "border border-white/10 bg-white/10 text-white hover:bg-white/15"}`}>{micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />}{micOn ? "Microphone on" : "Turn on microphone"}</button>
+              {isTeacher && <button disabled={!ready} onClick={() => void runAction(async () => { await connectionRef.current?.setScreenShare(!sharing); setSharing(!sharing); })} className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-5 py-3 text-sm font-semibold hover:bg-white/15"><MonitorUp className="h-4 w-4" />{sharing ? "Stop sharing" : "Share screen"}</button>}
+            </div>
+            <p className="mt-5 max-w-md text-xs leading-5 text-slate-500">Your microphone starts muted. No camera is used in this classroom. The teacher controls when the class ends.</p>
           </div>
-          <VideoPlayerContainer class="block w-full"><div ref={shareMountRef} className="w-full [&:not(:empty)]:aspect-video [&_video-player]:h-full [&_video-player]:w-full" /></VideoPlayerContainer>
-          <canvas ref={shareSurfaceRef} hidden={!screenSharing || shareUsesVideo} className="max-w-full rounded-xl" aria-label="Your shared screen" />
-          <video ref={shareVideoRef} hidden={!screenSharing || !shareUsesVideo} autoPlay playsInline muted className="max-w-full rounded-xl" aria-label="Your shared screen preview" />
-          <div className="flex flex-wrap gap-3">
-            <button disabled={!ready} onClick={() => void perform(async (connection) => { await connection.setCamera(!cameraOn); setCameraOn(!cameraOn); })} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-sm font-bold disabled:opacity-50">{cameraOn ? <Camera className="h-4 w-4" /> : <CameraOff className="h-4 w-4" />} Camera</button>
-            <button disabled={!ready} onClick={() => void perform((connection) => connection.setMicrophone(!micOn))} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-sm font-bold disabled:opacity-50">{micOn ? <Mic className="h-4 w-4" /> : <MicOff className="h-4 w-4" />} Microphone</button>
-            {isHost && <button disabled={!ready} onClick={() => void perform(async (connection) => { if (shareSurfaceRef.current && shareVideoRef.current) setShareUsesVideo(await connection.setScreenShare(!screenSharing, shareSurfaceRef.current, shareVideoRef.current)); })} className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-4 py-3 text-sm font-bold"><MonitorUp className="h-4 w-4" />{screenSharing ? "Stop Share" : "Share Screen"}</button>}
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-black/10 px-5 py-4">
+            <div className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4 text-emerald-300" />Private classroom · up to 2 students</div>
+            {isTeacher && <button onClick={() => void endClass()} className="rounded-xl bg-red-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-red-500/20 hover:bg-red-400">End class for everyone</button>}
           </div>
-          {notice && <p role="status" className="rounded-xl bg-white/10 p-3 text-sm">{notice}</p>}
         </section>
-        <aside className="space-y-4">
-          {isHost && <div className="rounded-2xl border border-blue-300/20 bg-blue-400/10 p-4">
-            <p className="flex items-center gap-2 font-bold text-blue-100"><ShieldCheck className="h-4 w-4" />Host controls</p>
-            <button disabled={!ready} onClick={() => void perform((connection) => connection.muteAll(), "All participants have been muted.")} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-xs font-bold"><VolumeX className="h-3.5 w-3.5" />Mute all</button>
-          </div>}
-          <div className="rounded-2xl border border-white/10 bg-white/10 p-4">
-            <p className="mb-3 flex items-center gap-2 font-bold"><Users className="h-4 w-4" />Participants ({participants.length})</p>
-            <div className="space-y-2">{participants.map((participant) => (
-              <div key={participant.userId} className="flex items-center justify-between gap-2 rounded-xl bg-white/5 p-3">
-                <div><p className="font-semibold">{participant.displayName}{participant.userId === ownZoomId ? " (You)" : ""}</p><p className="text-xs text-slate-400">{participant.isHost ? "Host" : participant.muted ? "Participant · muted" : "Participant"}</p></div>
-                {isHost && participant.userId !== ownZoomId && <div className="flex gap-1">
-                  <button onClick={() => void perform((connection) => connection.muteParticipant(participant.userId), `${participant.displayName} was muted.`)} className="rounded p-1.5" title="Mute participant"><MicOff className="h-3.5 w-3.5" /></button>
-                  <button onClick={() => void perform((connection) => connection.removeParticipant(participant.userId), `${participant.displayName} was removed from the meeting.`)} className="rounded p-1.5 text-red-200" title="Remove participant"><X className="h-3.5 w-3.5" /></button>
-                </div>}
-              </div>
-            ))}</div>
+
+        <aside className="flex min-h-[72vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#10192c] shadow-xl">
+          <div className="grid grid-cols-2 border-b border-white/10 p-2">
+            <button onClick={() => setPanel("participants")} className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold ${panel === "participants" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}><Users className="h-4 w-4" />People <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] text-blue-200">{participants.length + 1}</span></button>
+            <button onClick={() => setPanel("chat")} className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold ${panel === "chat" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}><MessageCircle className="h-4 w-4" />Chat <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px]">{messages.length}</span></button>
           </div>
+          {panel === "participants" ? <div className="flex-1 space-y-2 overflow-y-auto p-4">
+            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/20"><Crown className="h-4 w-4 text-blue-200" /></div><div><p className="text-sm font-semibold">{user?.name} (You)</p><p className="text-xs text-slate-500">{isTeacher ? "Teacher / Host" : "Student"}</p></div></div><span className="h-2 w-2 rounded-full bg-emerald-400" />
+            </div>
+            {participants.map((person) => <div key={person.id} className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+              <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20"><UserRound className="h-4 w-4 text-indigo-200" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{person.name}</p><p className="text-xs text-slate-500">{person.role === "teacher" ? "Teacher" : "Student"}</p></div></div>
+              {isTeacher && person.role === "student" && <div className="flex shrink-0 gap-1"><button title="Mute student" onClick={() => connectionRef.current?.muteParticipant(person.id)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><MicOff className="h-4 w-4" /></button><button title="Remove student" onClick={() => connectionRef.current?.removeParticipant(person.id)} className="rounded-lg p-2 text-red-300 hover:bg-red-500/10"><X className="h-4 w-4" /></button></div>}
+            </div>)}
+            {participants.length === 0 && <div className="py-10 text-center"><Users className="mx-auto h-8 w-8 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Waiting for students to join</p></div>}
+          </div> : <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex-1 space-y-3 overflow-y-auto p-4">
+              {messages.map((message) => <div key={message.id} className={`max-w-[92%] rounded-2xl p-3 ${message.userId === ownId ? "ml-auto bg-blue-500/20" : "bg-white/[0.06]"}`}><p className="text-[11px] font-semibold text-blue-200">{message.userId === ownId ? "You" : message.name}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-100">{message.text}</p><p className="mt-1 text-right text-[10px] text-slate-500">{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>)}
+              {messages.length === 0 && <div className="py-10 text-center"><MessageCircle className="mx-auto h-8 w-8 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Messages will appear here</p></div>}
+              <div ref={chatEndRef} />
+            </div>
+            <form onSubmit={submitChat} className="flex gap-2 border-t border-white/10 p-3"><input value={chatText} onChange={(event) => setChatText(event.target.value)} maxLength={2000} placeholder="Write a message…" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-400/50" /><button disabled={!chatText.trim()} className="rounded-xl bg-blue-500 px-4 text-sm font-bold text-white disabled:opacity-40">Send</button></form>
+          </div>}
         </aside>
       </div>
+
+      {notice && <div role="status" className="fixed bottom-5 left-1/2 z-30 flex max-w-[90vw] -translate-x-1/2 items-center gap-3 rounded-2xl border border-white/10 bg-[#1a2740] px-4 py-3 text-sm text-slate-100 shadow-2xl"><span>{notice}</span><button onClick={() => setNotice("")} aria-label="Dismiss" className="text-slate-400 hover:text-white"><X className="h-4 w-4" /></button></div>}
+      <div className="hidden"><audio autoPlay playsInline ref={(node) => { if (node) for (const [peerId, stream] of audioRefs.current) { const element = node; if (peerId) element.srcObject = stream; } }} /></div>
+      {participants.map((person) => <audio key={person.id} autoPlay playsInline ref={(node) => { if (node) audioRefs.current.set(person.id, node); else audioRefs.current.delete(person.id); }} />)}
     </main>
   );
 }

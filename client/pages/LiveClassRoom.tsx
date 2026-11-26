@@ -124,6 +124,10 @@ export function createClassroomConnection(options: ConnectionOptions) {
       options.onNotice("The teacher muted your microphone.");
       return;
     }
+    if (message.type === "class-ended") {
+      options.onClosed("The teacher has ended this class.");
+      return;
+    }
     if (message.type === "screen-share-state") {
       options.onNotice(message.enabled ? "The teacher started sharing their screen." : "Screen sharing ended.");
       return;
@@ -171,7 +175,7 @@ export function createClassroomConnection(options: ConnectionOptions) {
       try { void handleSignal(JSON.parse(String(event.data))); } catch { /* Ignore malformed server events. */ }
     });
     socket.addEventListener("close", (event) => {
-      if (!stopped) options.onClosed(event.code === 4003 ? "The teacher removed you from this class." : "Your classroom connection was closed. Please rejoin.");
+      if (!stopped) options.onClosed(event.code === 4003 ? "The teacher removed you from this class." : event.code === 4002 ? "The teacher has ended this class." : "Your classroom connection was closed. Please rejoin.");
     });
     return joined;
   }
@@ -217,7 +221,7 @@ export function createClassroomConnection(options: ConnectionOptions) {
   function muteParticipant(userId: string) { send({ type: "mute-request", targetId: userId }); }
   function removeParticipant(userId: string) { send({ type: "remove-request", targetId: userId }); }
 
-  async function endClass() { await api("end"); await stop(); }
+  async function endClass() { await api("end"); send({ type: "class-ended" }); await stop(); }
   async function stop() {
     if (stopped) return;
     stopped = true;

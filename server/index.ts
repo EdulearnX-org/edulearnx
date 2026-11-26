@@ -254,7 +254,6 @@ export function createServer() {
   apiRouter.post("/live-classes/:id/end", requireAuth, liveClassRoutes.endLiveClass);
   apiRouter.get("/live-classes/:id/status", requireAuth, liveClassRoutes.getLiveClassStatus);
   apiRouter.post("/live-classes/:id/join", requireAuth, liveClassRoutes.joinLiveClass);
-  apiRouter.post("/live-classes/:id/video-sdk-token", requireAuth, liveClassRoutes.createVideoSdkToken);
   apiRouter.post("/live-classes/:id/leave", requireAuth, liveClassRoutes.leaveLiveClass);
 
   apiRouter.get("/student/security-settings", requireAuth, securitySettingsRoutes.getStudentSecuritySettings);

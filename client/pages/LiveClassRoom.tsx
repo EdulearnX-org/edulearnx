@@ -387,16 +387,16 @@ export default function LiveClassRoom() {
   );
 
   return (
-    <main className="min-h-screen bg-[#080d1b] text-white">
-      <header className="border-b border-white/10 bg-[#0d1426]/95 px-4 py-3 backdrop-blur-xl">
+    <main className="relative min-h-screen overflow-hidden bg-[#070b16] text-white selection:bg-cyan-400/30"><div aria-hidden="true" className="pointer-events-none fixed inset-0 bg-[radial-gradient(ellipse_at_12%_0%,rgba(37,99,235,0.18),transparent_36%),radial-gradient(ellipse_at_90%_80%,rgba(14,165,233,0.10),transparent_34%)]" />
+      <header className="sticky top-0 z-30 border-b border-white/[0.08] bg-[#090f1e]/90 px-4 py-3 backdrop-blur-2xl">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between gap-4">
           <div className="flex min-w-0 items-center gap-3">
-            <img src="/logo.png" alt="EduLearnX" className="h-10 w-10 rounded-xl object-contain" />
-            <div className="min-w-0"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-300">EduLearnX Classroom</p><h1 className="truncate text-base font-bold sm:text-lg">{title}</h1><p className="truncate text-xs text-slate-400">{course}</p></div>
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.06] p-1.5 shadow-lg shadow-blue-950/40"><img src="/logo.png" alt="EduLearnX" className="h-full w-full object-contain" /></div>
+            <div className="min-w-0"><div className="flex items-center gap-2"><p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300">EduLearnX / Live learning</p><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-emerald-300">Private room</span></div><h1 className="truncate text-base font-bold tracking-tight sm:text-lg">{title}</h1><p className="truncate text-xs text-slate-400">{course || "One-to-one learning session"}</p></div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-slate-300 sm:flex"><span className="h-2 w-2 rounded-full bg-emerald-400" />{ready ? "Connected" : "Connecting"}</div>
-            <div className="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-right"><p className="text-[10px] uppercase tracking-wider text-slate-400">Class time</p><p className="font-mono text-sm font-semibold">{formatTime(elapsed)} <span className="text-[10px] font-normal text-slate-500">/ 40:00</span></p></div>
+            <div className={`hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium sm:flex ${ready ? "border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-200" : "border-amber-300/20 bg-amber-300/[0.08] text-amber-100"}`}><span className={`h-2 w-2 rounded-full ${ready ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,.8)]" : "animate-pulse bg-amber-300"}`} />{ready ? "Connection stable" : "Connecting…"}</div>
+            <div className="rounded-xl border border-white/[0.08] bg-white/[0.045] px-3 py-2 text-right shadow-inner"><p className="text-[9px] font-bold uppercase tracking-[0.18em] text-slate-500">Session timer</p><p className="font-mono text-sm font-semibold tracking-wider">{formatTime(elapsed)} <span className="text-[10px] font-normal text-slate-500">/ 40:00</span></p></div>
             {isTeacher && <div className="relative">
               <button onClick={() => setSettingsOpen((open) => !open)} aria-label="Class settings" className="rounded-xl border border-white/10 bg-white/[0.05] p-2.5 hover:bg-white/10"><Settings2 className="h-5 w-5" /></button>
               {settingsOpen && <div className="absolute right-0 top-12 z-20 w-64 rounded-2xl border border-white/10 bg-[#151f35] p-3 shadow-2xl">
@@ -411,11 +411,11 @@ export default function LiveClassRoom() {
         </div>
       </header>
 
-      <div className="mx-auto grid max-w-[1500px] gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="flex min-h-[72vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-[#111c34] via-[#0d1528] to-[#101b32] shadow-2xl">
+      <div className="relative mx-auto grid max-w-[1600px] gap-4 p-3 sm:p-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <section className="flex min-h-[68vh] flex-col overflow-hidden rounded-[28px] border border-white/[0.09] bg-gradient-to-br from-[#111d34]/95 via-[#0b1426]/95 to-[#101a30]/95 shadow-[0_24px_80px_rgba(0,0,0,.35)] backdrop-blur-xl">
           {Object.entries(remoteScreens).length > 0 && <div className="border-b border-white/10 bg-black/30 p-3">{Object.entries(remoteScreens).map(([peerId, stream]) => <video key={peerId} autoPlay playsInline className="max-h-[55vh] w-full rounded-2xl bg-black object-contain" ref={(node) => { if (node) { screenRefs.current.set(peerId, node); node.srcObject = stream; void node.play().catch(() => undefined); } else screenRefs.current.delete(peerId); }} />)}</div>}
-          <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">
-            <div className="relative flex h-32 w-32 items-center justify-center rounded-full border border-blue-300/20 bg-gradient-to-br from-blue-400/20 to-indigo-500/10 shadow-[0_0_70px_rgba(59,130,246,0.12)]">
+          <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden p-7 text-center sm:p-10"><div aria-hidden="true" className="pointer-events-none absolute h-72 w-72 rounded-full bg-blue-500/[0.07] blur-3xl" />
+            <div className="relative flex h-32 w-32 items-center justify-center rounded-[36px] border border-cyan-200/15 bg-gradient-to-br from-blue-400/20 via-indigo-500/15 to-cyan-300/10 shadow-[0_0_90px_rgba(59,130,246,0.16)] ring-8 ring-white/[0.02]">
               <UserRound className="h-14 w-14 text-blue-100" />
               <span className="absolute bottom-1 right-1 flex h-8 w-8 items-center justify-center rounded-full border-4 border-[#111c34] bg-emerald-400 text-[#071326]"><Volume2 className="h-4 w-4" /></span>
             </div>
@@ -427,33 +427,33 @@ export default function LiveClassRoom() {
             </div>
             <p className="mt-5 max-w-md text-xs leading-5 text-slate-500">Your microphone starts muted. No camera is used in this classroom. The teacher controls when the class ends.</p>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/10 bg-black/10 px-5 py-4">
-            <div className="flex items-center gap-2 text-xs text-slate-400"><ShieldCheck className="h-4 w-4 text-emerald-300" />Private classroom · up to 2 students</div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.08] bg-[#080f1d]/55 px-5 py-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-400"><span className="inline-flex items-center gap-2"><ShieldCheck className="h-4 w-4 text-emerald-300" />Encrypted peer connection</span><span className="inline-flex items-center gap-2"><Users className="h-4 w-4 text-cyan-300" />{participants.length + 1} / 3 in room</span><span className="inline-flex items-center gap-2"><Mic className="h-4 w-4 text-slate-500" />Audio only</span></div>
             {isTeacher && <button onClick={() => void endClass()} className="rounded-xl bg-red-500 px-4 py-2.5 text-xs font-bold text-white shadow-lg shadow-red-500/20 hover:bg-red-400">End class for everyone</button>}
           </div>
         </section>
 
-        <aside className="flex min-h-[72vh] flex-col overflow-hidden rounded-3xl border border-white/10 bg-[#10192c] shadow-xl">
-          <div className="grid grid-cols-2 border-b border-white/10 p-2">
+        <aside className="flex min-h-[68vh] flex-col overflow-hidden rounded-[28px] border border-white/[0.09] bg-[#0d1729]/95 shadow-[0_20px_70px_rgba(0,0,0,.3)] backdrop-blur-xl">
+          <div className="border-b border-white/[0.08] p-3"><p className="px-2 pb-2 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">Classroom workspace</p><div className="grid grid-cols-2 rounded-2xl bg-black/20 p-1">
             <button onClick={() => setPanel("participants")} className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold ${panel === "participants" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}><Users className="h-4 w-4" />People <span className="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] text-blue-200">{participants.length + 1}</span></button>
             <button onClick={() => setPanel("chat")} className={`flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold ${panel === "chat" ? "bg-white/10 text-white" : "text-slate-400 hover:text-white"}`}><MessageCircle className="h-4 w-4" />Chat <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px]">{messages.length}</span></button>
-          </div>
+          </div></div>
           {panel === "participants" ? <div className="flex-1 space-y-2 overflow-y-auto p-4">
-            <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+            <div className="flex items-center justify-between rounded-2xl border border-cyan-300/10 bg-gradient-to-r from-blue-400/[0.09] to-transparent p-3.5">
               <div className="flex items-center gap-3"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-500/20"><Crown className="h-4 w-4 text-blue-200" /></div><div><p className="text-sm font-semibold">{user?.name} (You)</p><p className="text-xs text-slate-500">{isTeacher ? "Teacher / Host" : "Student"}</p></div></div><span className="h-2 w-2 rounded-full bg-emerald-400" />
             </div>
-            {participants.map((person) => <div key={person.id} className="flex items-center justify-between gap-2 rounded-2xl border border-white/10 bg-white/[0.04] p-3">
+            {participants.map((person) => <div key={person.id} className="flex items-center justify-between gap-2 rounded-2xl border border-white/[0.07] bg-white/[0.035] p-3.5 transition hover:border-white/15 hover:bg-white/[0.06]">
               <div className="flex min-w-0 items-center gap-3"><div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-500/20"><UserRound className="h-4 w-4 text-indigo-200" /></div><div className="min-w-0"><p className="truncate text-sm font-semibold">{person.name}</p><p className="text-xs text-slate-500">{person.role === "teacher" ? "Teacher" : "Student"}</p></div></div>
               {isTeacher && person.role === "student" && <div className="flex shrink-0 gap-1"><button title="Mute student" onClick={() => connectionRef.current?.muteParticipant(person.id)} className="rounded-lg p-2 text-slate-400 hover:bg-white/10 hover:text-white"><MicOff className="h-4 w-4" /></button><button title="Remove student" onClick={() => connectionRef.current?.removeParticipant(person.id)} className="rounded-lg p-2 text-red-300 hover:bg-red-500/10"><X className="h-4 w-4" /></button></div>}
             </div>)}
-            {participants.length === 0 && <div className="py-10 text-center"><Users className="mx-auto h-8 w-8 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Waiting for students to join</p></div>}
+            {participants.length === 0 && <div className="py-10 text-center"><Users className="mx-auto h-8 w-8 text-slate-600" /><p className="mt-3 text-sm font-medium text-slate-300">Your room is ready</p><p className="mt-1 text-xs text-slate-500">The assigned student will appear here after joining.</p></div>}
           </div> : <div className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 space-y-3 overflow-y-auto p-4">
               {messages.map((message) => <div key={message.id} className={`max-w-[92%] rounded-2xl p-3 ${message.userId === ownId ? "ml-auto bg-blue-500/20" : "bg-white/[0.06]"}`}><p className="text-[11px] font-semibold text-blue-200">{message.userId === ownId ? "You" : message.name}</p><p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-100">{message.text}</p><p className="mt-1 text-right text-[10px] text-slate-500">{new Date(message.sentAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</p></div>)}
               {messages.length === 0 && <div className="py-10 text-center"><MessageCircle className="mx-auto h-8 w-8 text-slate-600" /><p className="mt-3 text-sm text-slate-400">Messages will appear here</p></div>}
               <div ref={chatEndRef} />
             </div>
-            <form onSubmit={submitChat} className="flex gap-2 border-t border-white/10 p-3"><input value={chatText} onChange={(event) => setChatText(event.target.value)} maxLength={2000} placeholder="Write a message…" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-400/50" /><button disabled={!chatText.trim()} className="rounded-xl bg-blue-500 px-4 text-sm font-bold text-white disabled:opacity-40">Send</button></form>
+            <form onSubmit={submitChat} className="flex gap-2 border-t border-white/[0.08] bg-black/15 p-3"><input value={chatText} onChange={(event) => setChatText(event.target.value)} maxLength={2000} placeholder="Write a message…" className="min-w-0 flex-1 rounded-xl border border-white/10 bg-white/[0.05] px-3 py-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-400/50" /><button disabled={!chatText.trim()} className="rounded-xl bg-blue-500 px-4 text-sm font-bold text-white disabled:opacity-40">Send</button></form>
           </div>}
         </aside>
       </div>

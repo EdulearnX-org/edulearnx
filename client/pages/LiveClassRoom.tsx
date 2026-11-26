@@ -166,18 +166,6 @@ export function createClassroomConnection(options: ConnectionOptions) {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const nextSocket = new WebSocket(`${protocol}//${window.location.host}/realtime/live-classes/${options.classId}`);
     socket = nextSocket;
-    await new Promise<void>((resolve, reject) => {
-      const timeout = window.setTimeout(() => reject(new Error("The classroom server did not respond in time.")), 12000);
-      nextSocket.addEventListener("open", () => {
-        window.clearTimeout(timeout);
-        reconnectAttempts = 0;
-        resolve();
-      }, { once: true });
-      nextSocket.addEventListener("error", () => {
-        window.clearTimeout(timeout);
-        if (initial) reject(new Error("Could not connect to the classroom server."));
-      }, { once: true });
-    });
     nextSocket.addEventListener("message", (event) => {
       try { void handleSignal(JSON.parse(String(event.data))); } catch { /* Ignore malformed server events. */ }
     });
@@ -189,6 +177,18 @@ export function createClassroomConnection(options: ConnectionOptions) {
       reconnectAttempts += 1;
       const delay = Math.min(15000, 1000 * (2 ** Math.min(reconnectAttempts, 4)));
       reconnectTimer = window.setTimeout(() => { void connectSocket(false).catch(() => undefined); }, delay);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const timeout = window.setTimeout(() => reject(new Error("The classroom server did not respond in time.")), 12000);
+      nextSocket.addEventListener("open", () => {
+        window.clearTimeout(timeout);
+        reconnectAttempts = 0;
+        resolve();
+      }, { once: true });
+      nextSocket.addEventListener("error", () => {
+        window.clearTimeout(timeout);
+        if (initial) reject(new Error("Could not connect to the classroom server."));
+      }, { once: true });
     });
   }
 

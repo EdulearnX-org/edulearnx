@@ -15,7 +15,6 @@ import * as authRoutes from "./routes/auth.js";
 import * as securitySettingsRoutes from "./routes/securitySettings.js";
 import * as userRoutes from "./routes/users.js";
 import * as courseRoutes from "./routes/courses.js";
-import * as courseZoomRoutes from "./routes/courseZoom.js";
 import * as statsRoutes from "./routes/stats.js";
 import * as enrollmentRequestRoutes from "./routes/enrollmentRequests.js";
 import * as tutorApplicationRoutes from "./routes/tutorApplications.js";
@@ -188,8 +187,6 @@ export function createServer() {
   apiRouter.delete("/users/:id", requireAuth, requireAdminFeature("users"), userRoutes.deleteUser);
 
   apiRouter.get("/courses", optionalAuth, courseRoutes.getCourses);
-  apiRouter.get("/course-zoom-links", requireAuth, courseZoomRoutes.getCourseZoomLinks);
-  apiRouter.patch("/courses/:id/zoom-link", requireAuth, courseZoomRoutes.updateCourseZoomLink);
   apiRouter.get("/instructors", requireAuth, requireAdminFeature("courses"), async (_req, res) => {
     try {
       const result = await query("SELECT id, full_name FROM users WHERE role = 'teacher' AND is_active = true ORDER BY full_name");

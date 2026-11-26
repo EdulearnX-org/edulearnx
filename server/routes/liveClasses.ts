@@ -5,7 +5,6 @@ import type { PoolClient } from "pg";
 import { transaction } from "../utils/transaction.js";
 import { HttpError, respondError } from "../utils/errors.js";
 import { idSchema, instantSchema } from "../../shared/validation.js";
-import jwt from "jsonwebtoken";
 import { query } from "../db/connection.js";
 import { isPrimaryAdmin, normalizeAdminPermissions } from "../../shared/adminPermissions.js";
 import { hasValidLiveClassDuration } from "../../shared/liveClassRules.js";
@@ -279,13 +278,6 @@ export const startLiveClass: RequestHandler = async (req, res) => {
     if (!["teacher", "admin"].includes(actor.role)) {
       return res.status(403).json({ success: false, error: "Teacher access required" });
     }
-    if (!process.env.ZOOM_VIDEO_SDK_KEY || !process.env.ZOOM_VIDEO_SDK_SECRET) {
-      return res.status(503).json({
-        success: false,
-        error: "Zoom Video SDK is not configured. Set ZOOM_VIDEO_SDK_KEY and ZOOM_VIDEO_SDK_SECRET on the server.",
-      });
-    }
-
     const result = await query(`${liveClassSelect} WHERE lc.id = $1`, [req.params.id]);
     const row = result.rows[0];
     if (!row) {
@@ -503,66 +495,5 @@ export const leaveLiveClass: RequestHandler = async (req, res) => {
       success: false,
       error: "Failed to leave live class",
     });
-  }
-};
-
-/** Creates a short-lived Zoom Video SDK JWT. The SDK secret never leaves the server. */
-export const createVideoSdkToken: RequestHandler = async (req, res) => {
-  try {
-    const actor = await getActor(req, res);
-    if (!actor) return;
-    const { id } = req.params;
-    const sdkKey = process.env.ZOOM_VIDEO_SDK_KEY;
-    const sdkSecret = process.env.ZOOM_VIDEO_SDK_SECRET;
-
-    if (!sdkKey || !sdkSecret) {
-      return res.status(503).json({
-        success: false,
-        error: "Zoom Video SDK is not configured. Add ZOOM_VIDEO_SDK_KEY and ZOOM_VIDEO_SDK_SECRET to the server environment.",
-      });
-    }
-    if (!["teacher", "student", "admin"].includes(actor.role)) {
-      return res.status(403).json({ success: false, error: "Live class access required." });
-    }
-
-    const liveClass = await query(`${liveClassSelect} WHERE lc.id = $1`, [id]);
-    if (liveClass.rows.length === 0) {
-      return res.status(404).json({ success: false, error: "Live class not found." });
-    }
-    const row = liveClass.rows[0];
-    if (actor.role === "teacher" && !canManageClass(actor, row)) {
-      return res.status(403).json({ success: false, error: "Only the assigned teacher can host this meeting." });
-    }
-    if (actor.role === "student" && !(await isEnrolled(actor.id, row.course_id))) {
-      return res.status(403).json({ success: false, error: "Only enrolled students can join this meeting." });
-    }
-    if (!classIsActive(row) || Date.now() < new Date(row.scheduled_start).getTime() - joinWindowMinutes * 60_000) {
-      return res.status(409).json({ success: false, error: "This class is not active or is outside its scheduled window." });
-    }
-
-    const now = Math.floor(Date.now() / 1000);
-    const topic = String(row.meeting_id || row.room_id);
-    const token = jwt.sign(
-      {
-        app_key: sdkKey,
-        role_type: actor.role === "teacher" ? 1 : 0,
-        tpc: topic,
-        user_identity: String(actor.id),
-        version: 1,
-        iat: now,
-        exp: now + 60 * 60,
-      },
-      sdkSecret,
-      { algorithm: "HS256" },
-    );
-
-    res.json({
-      success: true,
-      data: { token, topic, role: actor.role === "teacher" ? 1 : 0 },
-      message: "Zoom Video SDK token generated successfully.",
-    });
-  } catch (error) {
-    console.error("Error generating Zoom Video SDK token:", error);
-    res.status(500).json({ success: false, error: "Unable to authorize Zoom Video SDK." });
   }
 };

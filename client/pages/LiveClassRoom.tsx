@@ -22,6 +22,8 @@ export function createClassroomConnection(options: ConnectionOptions) {
   let attendanceId: string | number | null = null;
   let stopped = false;
   let socket: WebSocket | null = null;
+  let reconnectTimer: number | undefined;
+  let reconnectAttempts = 0;
   let localAudio: MediaStream | null = null;
   let displayStream: MediaStream | null = null;
   const peers = new Map<string, RTCPeerConnection>();
@@ -160,24 +162,47 @@ export function createClassroomConnection(options: ConnectionOptions) {
     }
   }
 
-  async function start() {
-    if (options.user.role === "teacher") await api("start");
-    const joined = await api("join");
-    attendanceId = joined.attendance?.id ?? null;
+  async function connectSocket(initial = false): Promise<void> {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    socket = new WebSocket(`${protocol}//${window.location.host}/realtime/live-classes/${options.classId}`);
+    const nextSocket = new WebSocket(`${protocol}//${window.location.host}/realtime/live-classes/${options.classId}`);
+    socket = nextSocket;
     await new Promise<void>((resolve, reject) => {
       const timeout = window.setTimeout(() => reject(new Error("The classroom server did not respond in time.")), 12000);
-      socket!.addEventListener("open", () => { window.clearTimeout(timeout); resolve(); }, { once: true });
-      socket!.addEventListener("error", () => { window.clearTimeout(timeout); reject(new Error("Could not connect to the classroom server.")); }, { once: true });
+      nextSocket.addEventListener("open", () => {
+        window.clearTimeout(timeout);
+        reconnectAttempts = 0;
+        resolve();
+      }, { once: true });
+      nextSocket.addEventListener("error", () => {
+        window.clearTimeout(timeout);
+        if (initial) reject(new Error("Could not connect to the classroom server."));
+      }, { once: true });
     });
-    socket.addEventListener("message", (event) => {
+    nextSocket.addEventListener("message", (event) => {
       try { void handleSignal(JSON.parse(String(event.data))); } catch { /* Ignore malformed server events. */ }
     });
-    socket.addEventListener("close", (event) => {
-      if (!stopped) options.onClosed(event.code === 4003 ? "The teacher removed you from this class." : event.code === 4002 ? "The teacher has ended this class." : "Your classroom connection was closed. Please rejoin.");
+    nextSocket.addEventListener("close", (event) => {
+      if (stopped) return;
+      if (event.code === 4003) { options.onClosed("The teacher removed you from this class."); return; }
+      if (event.code === 4002) { options.onClosed("The teacher has ended this class."); return; }
+      options.onNotice("Classroom connection interrupted. Reconnecting…");
+      reconnectAttempts += 1;
+      const delay = Math.min(15000, 1000 * (2 ** Math.min(reconnectAttempts, 4)));
+      reconnectTimer = window.setTimeout(() => { void connectSocket(false).catch(() => undefined); }, delay);
     });
-    return joined;
+  }
+
+  async function start() {
+    try {
+      if (options.user.role === "teacher") await api("start");
+      const joined = await api("join");
+      attendanceId = joined.attendance?.id ?? null;
+      await connectSocket(true);
+      return joined;
+    } catch (error) {
+      await stop();
+      throw error;
+    }
   }
 
   async function setMicrophone(enabled: boolean) {
@@ -224,6 +249,7 @@ export function createClassroomConnection(options: ConnectionOptions) {
   async function stop() {
     if (stopped) return;
     stopped = true;
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
     socket?.close(1000, "Leaving class");
     peers.forEach((pc) => pc.close());
     peers.clear();

@@ -1,4 +1,5 @@
 import { createServer as createHttpServer } from "node:http";
+import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { WebSocketServer, WebSocket } from "ws";
@@ -41,10 +42,10 @@ async function authorizeSocket(request: import("node:http").IncomingMessage, cla
     `SELECT u.id::text AS id, u.role, u.full_name
      FROM auth_sessions s
      JOIN users u ON u.id::text = s.user_id
-     WHERE s.token_hash = encode(digest($1, 'sha256'), 'hex')
+     WHERE s.token_hash = $1
        AND s.expires_at > CURRENT_TIMESTAMP
        AND u.is_active IS DISTINCT FROM FALSE`,
-    [token],
+    [createHash("sha256").update(token).digest("hex")],
   );
   const user = session.rows[0];
   if (!user || !["teacher", "student"].includes(user.role)) return null;
@@ -132,7 +133,7 @@ server.on("upgrade", (request, socket, head) => {
         if (message.type === "chat") {
           const text = typeof message.text === "string" ? message.text.trim().slice(0, 2000) : "";
           if (!text) return;
-          const event = { type: "chat", id: crypto.randomUUID(), userId: user!.id, name: user!.name, text, sentAt: new Date().toISOString() };
+          const event = { type: "chat", id: randomUUID(), userId: user!.id, name: user!.name, text, sentAt: new Date().toISOString() };
           for (const peer of room) send(peer, event);
           return;
         }

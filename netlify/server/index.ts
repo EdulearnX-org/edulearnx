@@ -129,9 +129,9 @@ server.on("upgrade", (request, socket, head) => {
         let message: any;
         try { message = JSON.parse(raw.toString()); } catch { return; }
         if (!message || typeof message.type !== "string") return;
-        const allowed = new Set(["offer", "answer", "ice-candidate", "chat", "microphone-state", "screen-share-state", "mute-request", "remove-request"]);
+        const allowed = new Set(["offer", "answer", "ice-candidate", "chat", "microphone-state", "screen-share-state", "mute-request", "remove-request", "class-ended"]);
         if (!allowed.has(message.type)) return;
-        if (["mute-request", "remove-request"].includes(message.type) && user!.role !== "teacher") return;
+        if (["mute-request", "remove-request", "class-ended", "screen-share-state"].includes(message.type) && user!.role !== "teacher") return;
         if (message.type === "chat") {
           const text = typeof message.text === "string" ? message.text.trim().slice(0, 2000) : "";
           if (!text) return;
@@ -141,6 +141,13 @@ server.on("upgrade", (request, socket, head) => {
         }
         const targetId = typeof message.targetId === "string" ? message.targetId : "";
         const target = targetId ? [...room].find((peer) => peer.user.id === targetId) : undefined;
+        if (message.type === "class-ended") {
+          for (const peer of room) if (peer !== client) {
+            send(peer, { type: "class-ended" });
+            peer.socket.close(4002, "Class ended by the teacher");
+          }
+          return;
+        }
         if (message.type === "remove-request" && target?.user.role === "student") {
           target.socket.close(4003, "Removed by the teacher");
           return;

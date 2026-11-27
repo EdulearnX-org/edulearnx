@@ -1,4 +1,5 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import AdminGlobalSearch from "./AdminGlobalSearch";
 import {
   BarChart3,
   BookOpen,

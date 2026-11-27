@@ -59,12 +59,12 @@ export const getAdminAnalytics: RequestHandler = async (_req, res) => {
       `),
       query(`
         SELECT
-          COUNT(*) FILTER (
+          COUNT(DISTINCT e.id) FILTER (
             WHERE COALESCE(e.progress_percentage, 0) < 25
               AND e.enrolled_at < CURRENT_TIMESTAMP - INTERVAL '14 days'
               AND COALESCE(e.is_completed, false) = false
           )::int AS low_progress_enrolments,
-          COUNT(*) FILTER (
+          COUNT(DISTINCT e.id) FILTER (
             WHERE lc.status = 'completed'
               AND lc.scheduled_end < CURRENT_TIMESTAMP - INTERVAL '7 days'
               AND NOT EXISTS (

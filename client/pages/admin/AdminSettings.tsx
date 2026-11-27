@@ -51,6 +51,8 @@ export default function AdminSettings() {
   const [coAdmins, setCoAdmins] = useState<CoAdmin[]>([]);
   const [permissionsStatus, setPermissionsStatus] = useState("");
   const [savingCoAdminId, setSavingCoAdminId] = useState<number | null>(null);
+  const [newCoAdmin, setNewCoAdmin] = useState({ full_name: "", email: "" });
+  const [creatingCoAdmin, setCreatingCoAdmin] = useState(false);
   const [paymentSettings, setPaymentSettings] = useState(emptyPaymentSettings);
   const [paymentStatus, setPaymentStatus] = useState("");
   const [studentOtpRequired, setStudentOtpRequired] = useState(false);
@@ -133,6 +135,30 @@ export default function AdminSettings() {
     });
     const payload = await response.json();
     setPaymentStatus(response.ok && payload.success ? "Bank details saved." : payload.error || "Unable to save bank details.");
+  };
+
+  const createCoAdmin = async (event: FormEvent) => {
+    event.preventDefault();
+    setCreatingCoAdmin(true);
+    setPermissionsStatus("");
+    try {
+      const response = await fetch("/api/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...newCoAdmin, role: "admin" }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success) throw new Error(payload.error || "Unable to create co-admin.");
+      const refreshed = await fetch("/api/admin/co-admins");
+      const list = await refreshed.json();
+      if (list.success) setCoAdmins((list.data ?? []).map((admin: CoAdmin) => ({ ...admin, permissions: normalizeAdminPermissions(admin.permissions) })));
+      setNewCoAdmin({ full_name: "", email: "" });
+      setPermissionsStatus("Co-admin account created. Send a password reset link to let them set their password.");
+    } catch (error) {
+      setPermissionsStatus(error instanceof Error ? error.message : "Unable to create co-admin.");
+    } finally {
+      setCreatingCoAdmin(false);
+    }
   };
 
   const updateCoAdminPermission = async (
@@ -298,6 +324,12 @@ export default function AdminSettings() {
               </p>
             </div>
 
+            <form onSubmit={createCoAdmin} className="mt-5 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-950 sm:grid-cols-[1fr_1fr_auto]">
+              <input required value={newCoAdmin.full_name} onChange={(event) => setNewCoAdmin({ ...newCoAdmin, full_name: event.target.value })} placeholder="Co-admin full name" className={inputClass} />
+              <input required type="email" value={newCoAdmin.email} onChange={(event) => setNewCoAdmin({ ...newCoAdmin, email: event.target.value })} placeholder="Co-admin email" className={inputClass} />
+              <button disabled={creatingCoAdmin} className="rounded-lg bg-slate-950 px-4 py-3 text-sm font-bold text-white disabled:opacity-50 dark:bg-white dark:text-slate-950">{creatingCoAdmin ? "Creating…" : "Create co-admin"}</button>
+            </form>
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">New co-admins are created with the database's default permission set. Configure their access below. They must use password reset to establish a password.</p>
             <div className="mt-5 divide-y divide-slate-200 dark:divide-slate-800">
               {coAdmins.map((admin) => (
                 <div key={admin.id} className="py-4 first:pt-0 last:pb-0">

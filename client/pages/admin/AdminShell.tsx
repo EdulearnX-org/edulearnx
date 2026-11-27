@@ -2,6 +2,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import AdminGlobalSearch from "./AdminGlobalSearch";
 import {
   BarChart3,
+  TrendingUp,
   BookOpen,
   BadgePercent,
   Clock,
@@ -16,6 +17,7 @@ import { ADMIN_FEATURES, type AdminFeature, type AdminPermissions } from "../../
 
 const navItems = [
   { label: "Dashboard", icon: <BarChart3 size={18} />, href: "/admin", feature: "overview" },
+  { label: "Advanced Analytics", icon: <TrendingUp size={18} />, href: "/admin/analytics", feature: "overview" },
   { label: "Students", icon: <Users size={18} />, href: "/admin/students", feature: "users" },
   { label: "Teachers", icon: <School size={18} />, href: "/admin/teachers", feature: "users" },
   { label: "Courses", icon: <BookOpen size={18} />, href: "/admin/courses", feature: "courses" },

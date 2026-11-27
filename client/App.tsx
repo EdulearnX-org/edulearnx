@@ -34,6 +34,7 @@ const Checkout = lazy(() => import("./pages/Checkout"));
 const CheckoutReturn = lazy(() => import("./pages/CheckoutReturn"));
 const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const AdminDashboard = lazy(() => import("./pages/dashboards/AdminDashboard"));
+const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
 const TeacherDashboard = lazy(() => import("./pages/dashboards/TeacherDashboard"));
 const StudentDashboard = lazy(() => import("./pages/dashboards/StudentDashboard"));
 const AdminUsersPage = lazy(() => import("./pages/admin/AdminUsersPage"));
@@ -112,6 +113,14 @@ const App = () => {
                 element={
                   <ProtectedPortal role="admin" feature="overview">
                     <AdminDashboard />
+                  </ProtectedPortal>
+                }
+              />
+              <Route
+                path="/admin/analytics"
+                element={
+                  <ProtectedPortal role="admin" feature="overview">
+                    <AdminAnalytics />
                   </ProtectedPortal>
                 }
               />

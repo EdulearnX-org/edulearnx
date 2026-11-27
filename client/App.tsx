@@ -36,6 +36,7 @@ const PaymentSuccess = lazy(() => import("./pages/PaymentSuccess"));
 const AdminDashboard = lazy(() => import("./pages/dashboards/AdminDashboard"));
 const AdminAnalytics = lazy(() => import("./pages/admin/AdminAnalytics"));
 const TeacherDashboard = lazy(() => import("./pages/dashboards/TeacherDashboard"));
+const AccountSecurity = lazy(() => import("./pages/AccountSecurity"));
 const StudentDashboard = lazy(() => import("./pages/dashboards/StudentDashboard"));
 const AdminUsersPage = lazy(() => import("./pages/admin/AdminUsersPage"));
 const AdminCourses = lazy(() => import("./pages/admin/AdminCourses"));
@@ -174,6 +175,8 @@ const App = () => {
               />
               <Route path="/admin/deals" element={<ProtectedPortal role="admin" feature="deals"><AdminDeals /></ProtectedPortal>} />
               <Route path="/admin/live-classes" element={<ProtectedPortal role="admin" feature="liveClasses"><AdminLiveClasses /></ProtectedPortal>} />
+              <Route path="/teacher/security" element={<ProtectedPortal role="teacher"><AccountSecurity /></ProtectedPortal>} />
+              <Route path="/student/security" element={<ProtectedPortal role="student"><AccountSecurity /></ProtectedPortal>} />
               <Route
                 path="/teacher"
                 element={

@@ -16,6 +16,7 @@ import * as securitySettingsRoutes from "./routes/securitySettings.js";
 import * as userRoutes from "./routes/users.js";
 import * as courseRoutes from "./routes/courses.js";
 import * as statsRoutes from "./routes/stats.js";
+import * as adminAnalyticsRoutes from "./routes/adminAnalytics.js";
 import * as enrollmentRequestRoutes from "./routes/enrollmentRequests.js";
 import * as tutorApplicationRoutes from "./routes/tutorApplications.js";
 import * as categoryRoutes from "./routes/categories.js";
@@ -178,6 +179,7 @@ export function createServer() {
   apiRouter.put("/admin/co-admins/:id", requireAuth, requirePrimaryAdmin, adminPermissionRoutes.updateCoAdminPermissions);
   apiRouter.get("/public-stats", statsRoutes.getPublicStats);
   apiRouter.get("/platform-stats", requireAuth, requireAdminFeature("overview"), statsRoutes.getPlatformStats);
+  apiRouter.get("/admin/analytics", requireAuth, requireAdminFeature("overview"), adminAnalyticsRoutes.getAdminAnalytics);
   apiRouter.get("/students/:id/rewards", requireAuth, rewardRoutes.getStudentRewards);
 
   apiRouter.get("/users", requireAuth, requireAdminFeature("users"), userRoutes.getUsers);

@@ -23,6 +23,7 @@ import {
   Save,
   Settings,
   Video,
+  ShieldCheck,
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -209,6 +210,7 @@ export default function StudentDashboard({
       href: "/student/courses",
     },
     { label: "Settings", icon: <Settings size={18} />, href: "/student/settings" },
+    { label: "Security", icon: <ShieldCheck size={18} />, href: "/student/security" },
   ];
 
   const bookClassTimeSlot = async (enrollmentId: number) => {

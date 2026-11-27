@@ -570,7 +570,7 @@ export default function StudentDashboard({
         <p className="student-theme-label"><Flame className="h-4 w-4" /> Night Study · Free theme</p>
         <h2 className="mt-1 text-3xl font-bold">{currentUser?.name?.split(" ")[0] || "Student"} 👋</h2>
         <p className="mt-2 max-w-xl text-sm leading-6 text-slate-200">Follow the lantern path, keep your learning streak alive, and make your next lesson the warmest part of the day.</p>
-        <div className="mt-5 flex flex-wrap gap-3"><Link to="/student/courses" className="rounded-lg bg-white px-4 py-2.5 text-sm font-bold text-slate-950">Continue learning</Link><Link to="/student/catalog" className="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-bold text-white ring-1 ring-white/20">Explore courses</Link></div>
+        <div className="mt-5 flex flex-wrap gap-3"><Link to="/student/courses" className="rounded-lg bg-white px-4 py-2.5 text-sm font-bold text-slate-950">Continue learning</Link><Link to="/student/catalog" className="rounded-lg bg-white/10 px-4 py-2.5 text-sm font-bold text-white ring-1 ring-white/20">Explore courses</Link><Link to="/student/security" className="inline-flex items-center gap-2 rounded-lg bg-cyan-300/15 px-4 py-2.5 text-sm font-bold text-cyan-50 ring-1 ring-cyan-100/30"><ShieldCheck className="h-4 w-4"/> Security centre</Link></div>
         <div className="student-theme-meta mt-6">
           <div><span>Campfire progress</span><strong>{averageProgress}%</strong></div>
           <div><span>Learning trail</span><strong>{enrollments.length ? `${enrollments.length} course${enrollments.length === 1 ? "" : "s"}` : "Start your first course"}</strong></div>

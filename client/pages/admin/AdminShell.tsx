@@ -65,7 +65,10 @@ export default function AdminShell({ title, subtitle, children }: AdminShellProp
       navItems={navItems.filter((item) => permissions?.[item.feature])}
       userRole="Admin"
     >
-      {children}
+      <div className="mx-auto w-full max-w-[1600px]">
+        <AdminGlobalSearch />
+        {children}
+      </div>
     </DashboardLayout>
   );
 }

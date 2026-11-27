@@ -8,7 +8,7 @@ import {
 } from "@/hooks/useLiveClasses";
 import { getCurrentPortalUser } from "@/lib/portalData";
 import { LIVE_CLASS_DURATION_MINUTES } from "../../../shared/liveClassRules";
-import { BookOpen, CalendarClock, LayoutDashboard, Video } from "lucide-react";
+import { BookOpen, CalendarClock, LayoutDashboard, Video, ShieldCheck, Clock3, Sparkles } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 const inputClass =
@@ -99,6 +99,18 @@ export default function TeacherDashboard() {
       userRole="Teacher"
     >
       <div className="space-y-6">
+        <section className="relative overflow-hidden rounded-3xl border border-cyan-300/20 bg-gradient-to-br from-slate-950 via-indigo-950 to-slate-900 p-6 text-white shadow-xl sm:p-8">
+          <div className="absolute -right-10 -top-16 h-48 w-48 rounded-full bg-cyan-400/15 blur-3xl" />
+          <div className="relative flex flex-wrap items-end justify-between gap-5">
+            <div><span className="inline-flex items-center gap-2 rounded-full border border-cyan-200/20 bg-cyan-200/10 px-3 py-1 text-xs font-bold text-cyan-100"><Sparkles size={14}/> TEACHING WORKSPACE</span><h1 className="mt-4 text-3xl font-black sm:text-4xl">Welcome back, {currentUser?.name || "Teacher"}</h1><p className="mt-2 max-w-xl text-sm text-slate-300">Your classes, teaching schedule and course workspace in one place.</p></div>
+            <a href="/teacher/security" className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-4 py-3 text-sm font-bold text-white hover:bg-white/15"><ShieldCheck size={17}/> Account security</a>
+          </div>
+          <div className="relative mt-6 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><BookOpen className="mb-3 h-5 w-5 text-cyan-200"/><p className="text-2xl font-black">{assignedCourses.length}</p><p className="text-xs text-slate-300">Assigned courses</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><CalendarClock className="mb-3 h-5 w-5 text-cyan-200"/><p className="text-2xl font-black">{liveClasses.length}</p><p className="text-xs text-slate-300">Scheduled sessions</p></div>
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-4"><Clock3 className="mb-3 h-5 w-5 text-cyan-200"/><p className="text-2xl font-black">{liveClasses.filter((item) => item.status === "active").length}</p><p className="text-xs text-slate-300">Active classes</p></div>
+          </div>
+        </section>
         <header>
           <h1 className="text-3xl font-bold text-slate-950 dark:text-white">
             Teacher Dashboard

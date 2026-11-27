@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import AdminShell from "./AdminShell";
 import {
   Activity, AlertTriangle, BarChart3, BookOpen, Download, GraduationCap,
@@ -43,7 +43,7 @@ type AnalyticsData = {
 const panel = "rounded-2xl border border-white/10 bg-slate-950/55 p-5 shadow-xl shadow-black/10 backdrop-blur-xl";
 const muted = "text-slate-400";
 
-function Metric({ label, value, detail, icon }: { label: string; value: string | number; detail: string; icon: React.ReactNode }) {
+function Metric({ label, value, detail, icon }: { label: string; value: string | number; detail: string; icon: ReactNode }) {
   return <article className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.08] to-white/[0.02] p-5">
     <div className="flex items-start justify-between gap-3"><div><p className={`text-sm font-semibold ${muted}`}>{label}</p><p className="mt-3 text-3xl font-black tracking-tight text-white tabular-nums">{value}</p><p className={`mt-1 text-xs ${muted}`}>{detail}</p></div><span className="rounded-xl border border-white/10 bg-white/5 p-3 text-cyan-200">{icon}</span></div>
   </article>;
